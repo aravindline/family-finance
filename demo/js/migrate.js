@@ -1,0 +1,146 @@
+// Move everything you entered from your current tracker into a newer (blank) tracker version from Claude.
+// Pure functions on two Workbook objects, so they can be tested without OneDrive.
+//  1. History tables the app appends to (Daily Expenses, Income Entries, Events, Money Lent, Budget History, Invested History, Chart
+//     Notes, Sync Log, App Meta): every typed value is copied row by row, matched by COLUMN NAME, so a column that
+//     moved still lands in the right place. The new table grows if it is shorter.
+//  2. Every other input cell (yellow, no formula) is copied to the same sheet and cell. If its row has a label
+//     (for example a setting's name) and the new file has that label on another row, the value follows the label.
+//     The new file's own labels, formulas and Change Log are kept.
+//  3. Known layout changes between versions are converted (v24 Kite 3-line paste -> v25 tidy rows).
+//  Anything that has no place in the new file is listed, never dropped silently. The old file is not changed.
+import { col2n, n2col, splitRef } from './xlsx.js';
+import { isTidy, readArea, toTidy, TIDY } from './kite.js';
+
+const blank = v => v === null || v === undefined || v === '';
+const HISTORY = new Set(['tblDaily', 'tblIncome', 'tblEvents', 'tblLent', 'tblRepaid', 'tblBudget', 'tblChartNotes', 'tblSyncLog', 'tblAppMeta', 'tblInvestedHist']);
+const META = 'tblAppMeta';
+// Input cells a version removed on purpose (approved by Aravind). A value typed there is listed as "not carried over",
+// so the move can still go ahead. Key = the version that removed them.
+const DROPPED = {
+  26: { 'Expenses': /^T(2[7-9]|[3-9]\d|1[0-4]\d)$/, 'Other Holdings': /^A7$/, 'Loans': /^R[4-6]$/, 'Estate & Contacts': /^[A-E](1[1-9]|20)$/, 'Goals': /^C7$/ },
+};
+// Input cells a version moved to a new place (old ref -> new ref)
+const MOVED = { 26: { 'Other Holdings': { A8: 'K5', B8: 'K6' } } };
+function movedBy(from, to, sheet, ref) {
+  for (const [v, m] of Object.entries(MOVED)) if ((from || 0) < Number(v) && (to || 0) >= Number(v) && m[sheet] && m[sheet][ref]) return m[sheet][ref];
+  return null;
+}
+function droppedBy(from, to, sheet, ref) {
+  for (const [v, m] of Object.entries(DROPPED)) if ((from || 0) < Number(v) && (to || 0) >= Number(v) && m[sheet] && m[sheet].test(ref)) return Number(v);
+  return null;
+}
+export function schemaVersion(wb) { try { const v = wb.get('Settings', 'C4'); return typeof v === 'number' ? v : Number(v) || null; } catch (e) { return null; } }
+export function movedTo(wb) { try { return wb.tables[META] ? wb.tableRows(META).find(r => r.Key === 'movedTo') || null : null; } catch (e) { return null; } }
+
+function tableBoxes(wb, only) {
+  const by = {};
+  for (const name of Object.keys(wb.tables)) { if (only && !only.has(name)) continue; try { const t = wb.table(name); (by[t.sheet] = by[t.sheet] || []).push([t.c1, t.r1, t.c2, t.r2]); } catch (e) { /* skip */ } }
+  return by;
+}
+const inBox = (boxes, ref) => { const [c, r] = splitRef(ref); const n = col2n(c); return (boxes || []).some(([c1, r1, c2, r2]) => n >= c1 && n <= c2 && r >= r1 && r <= r2); };
+
+function growTable(wb, name, lastRow) {
+  const t = wb.table(name); if (lastRow <= t.r2) return;
+  const ref = n2col(t.c1) + t.r1 + ':' + n2col(t.c2) + lastRow;
+  t.el.setAttribute('ref', ref); const af = t.el.getElementsByTagNameNS(t.el.namespaceURI, 'autoFilter')[0]; if (af) af.setAttribute('ref', ref);
+  wb.dirty.add(t.path);
+  for (let r = t.r2 + 1; r <= lastRow; r++) for (let c = t.c1; c <= t.c2; c++) { const st = wb.style(t.sheet, n2col(c) + t.r2); const ref1 = n2col(c) + r; if (!wb.isFormula(t.sheet, ref1)) wb.set(t.sheet, ref1, null, st); }
+}
+
+// returns { copied: [{sheet, ref, value}], missing: [{sheet, where, value, why}], perSheet: {sheet: {n, sum}}, notes: [] }
+export function moveData(oldWb, newWb) {
+  const copied = [], missing = [], notes = [], dropped = [];
+  const vFrom = schemaVersion(oldWb), vTo = schemaVersion(newWb);
+  const put = (sheet, ref, value) => { newWb.set(sheet, ref, value); copied.push({ sheet, ref, value }); };
+  // ---- 1. tables
+  for (const name of Object.keys(oldWb.tables)) {
+    if (!HISTORY.has(name)) continue;
+    const ot = oldWb.table(name);
+    const rows = []; // old typed values per data row
+    for (let r = ot.r1 + 1; r <= ot.r2; r++) {
+      const o = {}; let any = false;
+      ot.cols.forEach((h, i) => { const ref = n2col(ot.c1 + i) + r; if (oldWb.isFormula(ot.sheet, ref)) return; const v = oldWb.get(ot.sheet, ref); if (!blank(v)) { o[h] = v; any = true; } });
+      rows.push(any ? o : null);
+    }
+    if (name === META) for (let i = 0; i < rows.length; i++) if (rows[i] && rows[i].Key === 'movedTo') rows[i] = null;
+    while (rows.length && !rows[rows.length - 1]) rows.pop();
+    if (!rows.length) continue;
+    if (!newWb.tables[name]) { rows.forEach((o, i) => o && missing.push({ sheet: ot.sheet, where: name + ' row ' + (i + 1), value: JSON.stringify(o).slice(0, 120), why: 'table not in the new tracker' })); continue; }
+    growTable(newWb, name, newWb.table(name).r1 + rows.length);
+    const nt = newWb.table(name);
+    rows.forEach((o, i) => {
+      if (!o) return; const r = nt.r1 + 1 + i;
+      for (const [h, v] of Object.entries(o)) {
+        const ci = nt.cols.indexOf(h);
+        if (ci < 0) { missing.push({ sheet: ot.sheet, where: name + ' · ' + h + ' (row ' + (i + 1) + ')', value: v, why: 'column not in the new tracker' }); continue; }
+        const ref = n2col(nt.c1 + ci) + r;
+        if (newWb.isFormula(nt.sheet, ref)) { missing.push({ sheet: nt.sheet, where: name + ' · ' + h + ' (row ' + (i + 1) + ')', value: v, why: 'a formula in the new tracker' }); continue; }
+        put(nt.sheet, ref, v);
+      }
+    });
+  }
+  // ---- 2. Kite holdings layout change
+  const oldTidy = oldWb.hasSheet('Paste Holdings') && isTidy(oldWb.get('Paste Holdings', 'A12'));
+  const newTidy = newWb.hasSheet('Paste Holdings') && isTidy(newWb.get('Paste Holdings', 'A12'));
+  const skipPaste = new Set();
+  if (oldWb.hasSheet('Paste Holdings') && !oldTidy && newTidy) {
+    const g = oldWb.grid('Paste Holdings'); const codes = []; for (let r = 6; r <= 11; r++) { const v = g.get(r) && g.get(r).get(1); if (v) codes.push(String(v)); }
+    let last = 12; for (const [r, m] of g) if (r >= 13 && [...m.keys()].some(c => c <= 7)) last = Math.max(last, r);
+    const area = []; for (let r = 13; r <= last; r++) { const m = g.get(r); area.push([1, 2, 3, 4, 5, 6, 7].map(c => (m && m.has(c) ? m.get(c) : null))); }
+    const rows = toTidy(readArea(area, codes), codes);
+    if (rows.length > TIDY.rows) missing.push({ sheet: 'Paste Holdings', where: 'Kite holdings', value: rows.length + ' rows', why: 'more than the ' + TIDY.rows + ' rows in the new tracker' });
+    for (let r = TIDY.start; r < TIDY.start + TIDY.rows; r++) { const row = rows[r - TIDY.start]; for (let k = 0; k < 5; k++) { const ref = TIDY.cols[k] + r; skipPaste.add(ref); const v = row ? row[k] : null; if (!blank(v)) put('Paste Holdings', ref, v); else if (!blank(newWb.get('Paste Holdings', ref))) newWb.set('Paste Holdings', ref, null); } }
+    notes.push('Kite holdings converted to one row per stock per account: ' + rows.length + ' rows.');
+  }
+  // ---- 3. every other input cell
+  const ob = tableBoxes(oldWb, HISTORY);
+  for (const sheet of Object.keys(oldWb.sheetPath)) {
+    let refs; try { refs = oldWb.inputRefs(sheet); } catch (e) { continue; }
+    const nin = newWb.hasSheet(sheet) ? newWb.inputRefs(sheet) : null;
+    const og = oldWb.grid(sheet), ng = nin ? newWb.grid(sheet) : null;
+    // a row's label: the first typed, non-input, non-formula text in columns A to D (e.g. a setting's name)
+    const labelOf = (wb, g, inp, r) => { for (let c = 1; c <= 4; c++) { const ref = n2col(c) + r; const v = g.get(r) && g.get(r).get(c); if (typeof v === 'string' && v.trim() && !inp.has(ref) && !wb.isFormula(sheet, ref)) return [c, v.trim()]; } return null; };
+    const newRowOf = new Map();
+    const target = (ref) => {
+      const [c, r] = splitRef(ref); const lab = labelOf(oldWb, og, refs, r); if (!lab) return ref;
+      const here = labelOf(newWb, ng, nin, r); if (here && here[0] === lab[0] && here[1] === lab[1]) return ref;
+      const key = lab[0] + '|' + lab[1];
+      if (!newRowOf.has(key)) { let hit = null; for (const [rr, m] of ng) { const v = m.get(lab[0]); if (typeof v === 'string' && v.trim() === lab[1] && !nin.has(n2col(lab[0]) + rr)) { hit = rr; break; } } newRowOf.set(key, hit); }
+      const rr = newRowOf.get(key); return rr ? c + rr : null;
+    };
+    for (const ref of refs) {
+      if (inBox(ob[sheet], ref)) continue; // handled with its table
+      if (sheet === 'Paste Holdings' && (skipPaste.has(ref) || (!oldTidy && splitRef(ref)[1] >= 13))) continue;
+      if (sheet === 'Paste Holdings' && newTidy && splitRef(ref)[1] >= 6 && splitRef(ref)[1] <= 11 && /^APP/i.test(String(oldWb.get(sheet, 'A' + splitRef(ref)[1]) || ''))) continue; // combined app slots are not used from v25
+      const v = oldWb.get(sheet, ref); if (blank(v)) continue;
+      const mv = movedBy(vFrom, vTo, sheet, ref); if (mv && nin && nin.has(mv)) { put(sheet, mv, v); continue; }
+      if (sheet === 'Other Holdings' && ref === 'A7' && String(v).trim().toUpperCase() === 'USD' && (vTo || 0) >= 26 && (vFrom || 0) < 26) continue; // USD is built in from v26
+      const dv = droppedBy(vFrom, vTo, sheet, ref); if (dv) { dropped.push({ sheet, where: ref, value: v, why: 'removed in v' + dv }); continue; }
+      if (!nin) { missing.push({ sheet, where: ref, value: v, why: 'sheet not in the new tracker' }); continue; }
+      const to = target(ref);
+      if (!to) { missing.push({ sheet, where: ref, value: v, why: 'its row label is not in the new tracker' }); continue; }
+      if (newWb.isFormula(sheet, to)) { missing.push({ sheet, where: to, value: v, why: 'a formula in the new tracker' }); continue; }
+      if (!nin.has(to)) { missing.push({ sheet, where: to, value: v, why: 'not an input cell in the new tracker' }); continue; }
+      put(sheet, to, v);
+    }
+  }
+  // ---- check: read every copied cell back from the new file
+  const wrong = copied.filter(c => { const v = newWb.get(c.sheet, c.ref); return typeof c.value === 'number' ? Math.abs(Number(v) - c.value) > 1e-9 : String(v ?? '') !== String(c.value ?? ''); });
+  const perSheet = {};
+  for (const c of copied) { const p = perSheet[c.sheet] = perSheet[c.sheet] || { n: 0, sum: 0, newSum: 0 }; p.n++; if (typeof c.value === 'number') p.sum += c.value; const nv = newWb.get(c.sheet, c.ref); if (typeof nv === 'number') p.newSum += nv; }
+  return { copied, missing, wrong, perSheet, notes, dropped, from: vFrom, to: vTo };
+}
+
+// a fresh tracker from Claude has no daily expenses or income typed in it yet
+export function looksBlank(wb) {
+  const n = name => { try { return wb.tables[name] ? wb.tableRows(name).filter(r => Object.entries(r).some(([k, v]) => k !== '_row' && !blank(v))).length : 0; } catch (e) { return 0; } };
+  return { daily: n('tblDaily'), income: n('tblIncome') };
+}
+
+export function markMoved(oldWb, { to, by, at, version }) {
+  oldWb.appendTableRow(META, { Key: 'movedTo', Version: version || '', 'Updated at': at, 'Updated by': by + (to ? ' · ' + to : '') });
+}
+export function markMovedFrom(newWb, { from, by, at, version }) {
+  if (!newWb.tables[META]) return;
+  newWb.appendTableRow(META, { Key: 'movedFrom', Version: version || '', 'Updated at': at, 'Updated by': by + (from ? ' · ' + from : '') });
+}
