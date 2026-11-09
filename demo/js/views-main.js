@@ -7,7 +7,7 @@ import { CONFIG } from './config.js';
 import { streakChip, activity, activityList, dueItems, approve, skip } from './views-extra.js';
 import { recapCard, openStory } from './views-insight.js';
 import * as C2 from './views-c2.js';
-import { addSwitch, forPill, incomeList, viewIncome } from './views-income.js';
+import { addSwitch, forPill, incomeList, viewIncome, micButton, amountRow, voiceSummary, parseVoice } from './views-income.js';
 import { swipeable, parseAmount, hasLongDigits, DIGITS_MSG, confirmAmount } from './ui.js';
 import { handoverItem } from './views-handover.js';
 
@@ -256,6 +256,7 @@ export function viewAddExpense() {
   const ed = state.editing; const st = ctx.settings();
   const sug = ed ? '' : suggestCategory(cats);
   const f = { by: ed ? ed.by || ctx.who() : ctx.who(), date: ed ? ed.date : isoToday(), amount: ed ? String(ed.amount) : '', category: ed ? ed.category : sug, sub: ed ? ed.sub : (sug ? (st.lastSub || {})[sug] || '' : ''), mode: ed ? ed.mode : (st.lastMode || ''), notes: ed ? ed.notes : '', event: ed ? ed.event || '' : '' }; let catTouched = !!ed;
+  if (state.voiceExp) { Object.assign(f, state.voiceExp); state.voiceExp = null; catTouched = true; } // filled by voice, then redrawn
   const amt = h('input', { id: 'amount', inputmode: 'decimal', placeholder: '0', 'aria-label': 'Amount in rupees', value: f.amount, autocomplete: 'off' });
   const catBox = h('div', { class: 'chips catgrid', role: 'group', 'aria-label': 'Category' }), subBox = h('div', { class: 'chips', role: 'group', 'aria-label': 'Sub-category' }), modeBox = h('div', { class: 'chips', role: 'group', 'aria-label': 'Payment mode' });
   const subWrap = h('div');
@@ -298,7 +299,16 @@ export function viewAddExpense() {
   setTimeout(() => amt.focus(), 60);
   return { title: ed ? 'Edit expense' : 'Add expense', back: 'spend', body: [h('div', { style: { maxWidth: '640px' } },
     ed ? h('div', { class: 'addtop' }, forPill(f, 'by')) : addSwitch('Expense', forPill(f, 'by')),
-    h('label', { class: 'amount' }, h('span', {}, '₹'), amt),
+    amountRow(h('label', { class: 'amount' }, h('span', {}, '₹'), amt), micButton(alts => {
+      const v = parseVoice(alts, 'expense', { cats, subs, modes, events: C2.activeEvents().map(e => e.name) });
+      const fill = { ...f, amount: amt.value, notes: notes.value };
+      if (v.amount != null) fill.amount = String(v.amount);
+      if (v.category) { fill.category = v.category; fill.sub = v.sub || ''; }
+      else if (v.notes && !fill.category) { const g = C2.guessCategory(v.notes, cats); if (g) { fill.category = g; fill.sub = ''; v.category = g; } }
+      for (const k of ['date', 'mode', 'event', 'by']) if (v[k]) fill[k] = v[k];
+      if (v.notes && !fill.notes) fill.notes = v.notes;
+      state.voiceExp = fill; ctx.render(); toast(voiceSummary(v), v.amount != null || v.category ? 'info' : 'bad');
+    })),
     h('div', { class: 'label-sm' }, 'Category', sug ? h('span', { class: 'faint' }, ' · suggested for this time of day') : null, learnHint), cats.length ? catBox : h('p', { class: 'hint' }, 'Sync once to get your categories.'),
     subWrap,
     h('div', { class: 'label-sm' }, 'Date'), dateBox,

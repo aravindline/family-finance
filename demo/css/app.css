@@ -373,3 +373,10 @@ table.cmp.inc td:first-child { white-space: nowrap; }
 .invrow .body { flex: 1; min-width: 0; } .invrow .ttl { font-weight: 700; } .invrow .sub { font-size: .8rem; color: var(--muted); }
 .invrow .end { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
 .wiz-strip { display: flex; align-items: center; gap: 10px; width: 100%; }
+/* 0.11.0 voice entry */
+.amountrow { display: flex; align-items: center; gap: 10px; }
+.amountrow .amount { flex: 1; min-width: 0; }
+.micbtn { flex: none; width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface-2); color: var(--brand); display: grid; place-items: center; cursor: pointer; }
+.micbtn.on { background: var(--brand); color: #fff; border-color: var(--brand); animation: micpulse 1.2s ease-in-out infinite; }
+@keyframes micpulse { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--brand) 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .micbtn.on { animation: none; } }

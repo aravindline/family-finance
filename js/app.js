@@ -24,7 +24,7 @@ import * as YV from './views-year.js';
 import * as TV from './views-topics.js';
 import * as MV from './views-move.js';
 
-export const APP_VERSION = '0.10.0 (cleaner layout)';
+export const APP_VERSION = '0.11.0 (voice entry)';
 const $app = document.getElementById('app');
 
 // ---------- appearance (kept outside the vault so the lock screen matches)
@@ -213,7 +213,7 @@ function nav() {
 const TIPS = {
   home: 'Amounts start hidden. Tap the eye at the top to show them. Pull down from the top to sync. The search icon finds screens, settings and entries.',
   spend: 'Switch between Spending and Income at the top. Swipe one of your entries right to edit it, or left to delete it. Every delete or edit can be undone for a few seconds.',
-  addexpense: 'The category is suggested for this time of day once you have logged a few. Save + new keeps the screen open for the next one.',
+  addexpense: 'Tap the mic and say it, like "450 lunch UPI yesterday". The form fills in; check it and press Save. The category is also suggested for this time of day once you have logged a few.',
   reports: 'Tap a category to see its entries. The recap button shows last month in a few cards.',
   wealth: 'Figures come from the tracker as Excel last saved it. They update after you open the tracker in Excel.',
   tracker: 'Each topic has its screens and everything you type for it. Saving writes only the yellow cells on the next sync.',

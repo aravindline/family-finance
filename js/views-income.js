@@ -7,6 +7,7 @@ import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, toast, card, empty, tag, sheet, seg, haptic, columnChart, trendChart, catIcon, SERIES, swipeable , parseAmount } from './ui.js';
 import { uuid } from './crypto.js';
+import * as Voice from './voice.js';
 
 const PEOPLE = ['Aravind', 'Madhu'];
 const DEFAULT_CATS = [{ name: 'Salary', goes: 'Take-home', subs: ['Monthly payout', 'Variable pay', 'Bonus', 'Others'] },
@@ -80,6 +81,25 @@ export function forPill(f, key) {
   b.onclick = () => { f[key] = f[key] === 'Aravind' ? 'Madhu' : 'Aravind'; haptic(); draw(); };
   draw(); return b;
 }
+// Mic next to the amount (0.11.0): one tap, speak in English, the form is filled in. Nothing saves until Save.
+// Hidden where the browser has no speech recognition.
+export function micButton(onHeard) {
+  if (!Voice.voiceSupported()) return null;
+  const b = h('button', { class: 'micbtn', id: 'micbtn', type: 'button', 'aria-label': 'Speak the entry', 'aria-pressed': 'false', title: 'Speak the entry' }, icon('mic', 22));
+  let on = false;
+  const set = v => { on = v; b.classList.toggle('on', v); b.setAttribute('aria-pressed', String(v)); b.setAttribute('aria-label', v ? 'Listening. Tap to stop' : 'Speak the entry'); };
+  b.onclick = async () => {
+    if (on) { Voice.stopListening(); set(false); return; }
+    set(true); haptic(); toast('Listening… say it like "450 lunch UPI yesterday"');
+    try { const alts = await Voice.listen(); set(false); onHeard(alts); }
+    catch (e) { set(false); if (e.code !== 'aborted') toast(e.message, 'bad'); }
+  };
+  return b;
+}
+export const amountRow = (label, mic) => mic ? h('div', { class: 'amountrow' }, label, mic) : label;
+export const voiceSummary = v => Voice.summary(v, F.inr);
+export const parseVoice = (alts, kind, lists) => Voice.parseVoice(alts, kind, lists);
+
 // Expense | Income switch shown at the top of both add screens (Expense is the default, on the left)
 export function addSwitch(current, pill) {
   return h('div', { class: 'addtop' }, seg(['Expense', 'Income'], current, v => { if (v !== current) ctx.go(v === 'Income' ? 'addincome' : 'addexpense', { replace: true }); }, 'Add an expense or income'), pill || null);
@@ -234,7 +254,14 @@ export function viewAddIncome() {
   setTimeout(() => amt.focus(), 60);
   return { title: 'Add income', back: 'home', body: [h('div', { style: { maxWidth: '640px' } },
     addSwitch('Income', forPill(f, 'person')),
-    h('label', { class: 'amount' }, h('span', {}, '₹'), amt),
+    amountRow(h('label', { class: 'amount' }, h('span', {}, '₹'), amt), micButton(alts => {
+      const v = Voice.parseVoice(alts, 'income', { cats, accounts: incomeAccounts() });
+      if (v.amount != null) f.amount = String(v.amount);
+      if (v.category) { f.category = v.category; f.sub = v.sub || ''; }
+      for (const k of ['date', 'account', 'person']) if (v[k]) f[k] = v[k];
+      if (v.notes && !f.notes) f.notes = v.notes;
+      ctx.render(); toast(voiceSummary(v), v.amount != null || v.category ? 'info' : 'bad');
+    })),
     h('div', { class: 'label-sm' }, 'Category'), catBox, subWrap,
     h('div', { class: 'label-sm' }, 'Date received'), dateBox,
     h('div', { class: 'label-sm' }, 'Received in'), accBox, newAcc,

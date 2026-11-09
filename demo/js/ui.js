@@ -80,6 +80,7 @@ const P = {
   hand: 'M3 13l4-4 4 1 3-3 4 1 3 3-6 6-3-1-3 2-6-5z M10 10l3 3',
   msg: 'M4 5h16v11H9l-5 4z',
   note: 'M5 4h10l4 4v12H5z M15 4v4h4 M8 12h8 M8 16h5',
+  mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z M5 11a7 7 0 0 0 14 0 M12 18v3 M9 21h6',
 };
 export function icon(name, size = 20) {
   return s('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
