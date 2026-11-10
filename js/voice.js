@@ -156,7 +156,15 @@ function best(T, names, opts = {}) {
     const key = String(name).toLowerCase(); const ks = keysOf(name).filter(k => !/^\d+$/.test(k) && !(opts.ignore || []).includes(k));
     let score = 0, ix = [], viaAlias = false;
     if (ks.length) { const hit = ks.filter(k => words.includes(k)); if (hit.length === ks.length || (opts.partial && hit.length && hit.length * 2 >= ks.length)) { score = hit.length * 2 + (hit.length === ks.length ? 1 : 0); ix = hit.map(k => free[words.indexOf(k)].i); } }
+    // each part of a "Bus/Rail/Flight" style name works on its own ("bus", "train" via the extra words)
+    const parts = key.includes('/') ? key.split('/').map(x => x.trim()).filter(x => x.length >= 2) : [];
+    for (const a of parts) { const at = phraseAt(a); if (at) { const sc = at.length * 2 + 1; if (sc > score) { score = sc; ix = at; viaAlias = false; } } }
     for (const a of ALIAS[key] || []) { const at = phraseAt(a); if (at) { const sc = at.length * 2; if (sc > score) { score = sc; ix = at; viaAlias = true; } } }
+    // joined or split words: "dineout" for "Dine-out", "net banking" said as "netbanking", "grocery essentials" as one word
+    for (const sq of [key, ...(ALIAS[key] || [])].map(x => x.replace(/[^a-z0-9]+/g, '')).filter(x => x.length >= 4)) {
+      for (let s0 = 0; s0 < free.length; s0++) { let joined = ''; for (let k = s0; k < Math.min(free.length, s0 + 3); k++) { joined += free[k].w.replace(/[^a-z0-9]/g, '');
+        if (joined === sq || stem(joined) === stem(sq)) { const at = free.slice(s0, k + 1).map(t => t.i); const sc = Math.max(ks.length, 1) * 2 + 1; if (sc > score) { score = sc; ix = at; viaAlias = key !== sq; } } } }
+    }
     for (const d of opts.digits ? (String(name).match(/\d{4}/g) || []) : []) { const at = T.findIndex(t => !t.used && t.num && t.w === d); if (at >= 0) { score += 3; ix = [...ix, at]; } }
     if (score) scored.push({ name, score, ix, viaAlias });
   }
@@ -189,6 +197,26 @@ function noteFrom(T) {
   return s ? s[0].toUpperCase() + s.slice(1) : '';
 }
 
+// Category and sub-category. A category that was said narrows the sub-categories to its own; a sub-category alone
+// brings its category ("dine-out" -> Food). "Other(s)" only counts when said, and a generic "Others" category loses to a named one.
+function pickCategory(T, heard, cats, out, keepAlias) {
+  const saidOther = /\bothers?\b/i.test(heard);
+  const okSub = x => !/^others?$/i.test(x) || saidOther;
+  const named = cats.filter(c => !/^others?$/i.test(c.name));
+  const cm = best(T, named.map(c => c.name)) || best(T, cats.map(c => c.name));
+  if (cm) {
+    const T2 = T.map(t => ({ ...t })); for (const i of cm.ix) T2[i].used = true;
+    const own = (cats.find(c => c.name === cm.name) || {}).subs || [];
+    const sm1 = best(T2, own.filter(okSub));
+    if (sm1) { out.category = cm.name; out.sub = sm1.name; take(T, sm1, keepAlias); take(T, cm, keepAlias); return; }
+  }
+  const pairs = cats.flatMap(c => c.subs.filter(okSub).map(s => ({ s, c: c.name })));
+  const sm = best(T, pairs.map(x => x.s).filter((x, i, a) => a.indexOf(x) === i));
+  if (sm) { const owners = pairs.filter(x => x.s === sm.name).map(x => x.c); const cat = cm && owners.includes(cm.name) ? cm.name : owners.length === 1 ? owners[0] : '';
+    if (cat && !(cm && cm.name !== cat && cm.score >= sm.score)) { out.category = cat; out.sub = sm.name; take(T, sm, keepAlias); if (cm && cm.name === cat) take(T, cm, keepAlias); return; } }
+  if (cm) { out.category = cm.name; take(T, cm, keepAlias); }
+}
+
 /**
  * Turns what was said into form fields.
  * kind 'expense': lists { cats, subs:{cat:[...]}, modes, events:[names] } → { amount, date, category, sub, mode, event, by, notes, heard }
@@ -204,23 +232,12 @@ export function parseVoice(alts, kind, lists, now = new Date()) {
   const who = findPerson(T); if (who) out[kind === 'income' ? 'person' : 'by'] = who;
   if (kind === 'income') {
     const acc = best(T, lists.accounts || [], { digits: true, partial: true, ignore: ['sample', 'salary', 'saving'] }); if (acc) { out.account = acc.name; take(T, acc); }
-    const cats = lists.cats || [];
-    const subs = cats.flatMap(c => (c.subs || []).filter(s => !/^others?$/i.test(s) || /\bothers?\b/i.test(heard)).map(s => ({ s, c: c.name })));
-    const sm = best(T, subs.map(x => x.s).filter((x, i, a) => a.indexOf(x) === i));
-    const cm = best(T, cats.map(c => c.name));
-    if (sm) { const owners = subs.filter(x => x.s === sm.name).map(x => x.c); const cat = cm && owners.includes(cm.name) ? cm.name : owners.length === 1 ? owners[0] : '';
-      if (cat) { out.category = cat; out.sub = sm.name; take(T, sm); if (cm && cm.name === cat) take(T, cm); } }
-    if (!out.category && cm) { out.category = cm.name; take(T, cm); }
+    pickCategory(T, heard, (lists.cats || []).map(c => ({ name: c.name, subs: c.subs || [] })), out, false);
   } else {
     const ev = best(T, lists.events || [], { partial: true }); if (ev) { out.event = ev.name; take(T, ev); }
-    const mode = best(T, lists.modes || []); if (mode) { out.mode = mode.name; take(T, mode); }
-    const subs = lists.subs || {}; const cats = lists.cats || [];
-    const pairs = cats.flatMap(c => (subs[c] || []).filter(s => !/^others?$/i.test(s) || /\bothers?\b/i.test(heard)).map(s => ({ s, c })));
-    const sm = best(T, pairs.map(x => x.s).filter((x, i, a) => a.indexOf(x) === i));
-    const cm = best(T, cats);
-    if (sm) { const owners = pairs.filter(x => x.s === sm.name).map(x => x.c); const cat = cm && owners.includes(cm.name) ? cm.name : owners.length === 1 ? owners[0] : '';
-      if (cat && !(cm && cm.name !== cat && cm.score >= sm.score)) { out.category = cat; out.sub = sm.name; take(T, sm, true); if (cm && cm.name === cat) take(T, cm, true); } }
-    if (!out.category && cm) { out.category = cm.name; take(T, cm, true); }
+    const mode = best(T, (lists.modes || []).filter(m => !/^others?$/i.test(m))); if (mode) { out.mode = mode.name; take(T, mode); }
+    const subs = lists.subs || {};
+    pickCategory(T, heard, (lists.cats || []).map(c => ({ name: c, subs: subs[c] || [] })), out, true);
   }
   let amt = findAmount(T);
   for (let k = 1; amt == null && k < alts.length; k++) { const T2 = tokenize(alts[k]); findDate(T2, now); findPerson(T2); amt = findAmount(T2); }

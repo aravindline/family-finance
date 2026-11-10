@@ -22,9 +22,10 @@ import * as CV from './views-cas.js';
 import * as HV from './views-handover.js';
 import * as YV from './views-year.js';
 import * as TV from './views-topics.js';
+import * as V12 from './views-v12.js';
 import * as MV from './views-move.js';
 
-export const APP_VERSION = '0.11.0 (voice entry)';
+export const APP_VERSION = '0.12.0 (goals & EPF)';
 const $app = document.getElementById('app');
 
 // ---------- appearance (kept outside the vault so the lock screen matches)
@@ -147,7 +148,7 @@ setInterval(() => { if (V.isUnlocked() && navigator.onLine && document.visibilit
 const TABS = [['home', 'Home', 'home'], ['spend', 'Money', 'spend'], ['add', '', 'plus'], ['wealth', 'Wealth', 'wealth'], ['more', 'More', 'more']];
 const TAB_OF = { home: 'home', spend: 'spend', addexpense: 'spend', addincome: 'spend', income: 'spend', reports: 'spend', recurring: 'spend', events: 'spend', activity: 'home', conflicts: 'home',
   wealth: 'wealth', plan: 'wealth', alerts: 'wealth', checks: 'wealth', lent: 'more', protection: 'more', documents: 'more', settings: 'more', more: 'more', changelock: 'more', backup: 'more', restore: 'more',
-  monthly: 'more', holdings: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more' };
+  monthly: 'more', holdings: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more' };
 function syncPill() {
   const st = V.get('sync', 'state') || {}; const pending = V.all('outbox').length; const conflicts = V.all('conflict').length;
   let cls = 'pill', text;
@@ -200,7 +201,7 @@ function installCard() {
     h('div', { class: 'label-sm' }, 'Laptop (Chrome or Edge)'),
     h('ol', { class: 'steps-list' }, step(1, 'Open the address above.'), step(2, 'Click the install icon at the right end of the address bar (or menu › Apps › Install).'), step(3, 'Open it and choose a PIN or passphrase.')),
     h('div', { class: 'label-sm' }, 'Then, on that device'),
-    h('ol', { class: 'steps-list' }, step(1, 'Settings › Who uses this device: pick the person.'), step(2, 'Paste the tracker\'s OneDrive link and sign in with that person\'s own Microsoft account.'), step(3, 'For Madhu: share the tracker with her Microsoft account with "Can edit" first (OneDrive › Share).')));
+    h('ol', { class: 'steps-list' }, step(1, 'More › App › Sign in & tracker › Who uses this device: pick the person.'), step(2, 'Paste the tracker\'s OneDrive link and sign in with that person\'s own Microsoft account.'), step(3, 'For Madhu: share the tracker with her Microsoft account with "Can edit" first (OneDrive › Share).')));
 }
 function renderTop() { const p = document.getElementById('syncpill'); if (p && V.isUnlocked()) p.replaceWith(syncPill()); }
 function nav() {
@@ -354,7 +355,7 @@ async function viewSettings() {
   const sw = (on, label, fn) => h('button', { class: 'switch', role: 'switch', 'aria-checked': String(!!on), 'aria-label': label, onclick: fn });
   const body = [
     h('h2', { class: 'sec-h' }, 'Everyday'),
-    CONFIG.demo ? demoCard() : syncCard(),
+    CONFIG.demo ? demoCard() : null,
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'This device')),
       row('Who uses this device', 'Every change is tagged with this name.', sel([['', 'Not set'], ['Aravind', 'Aravind'], ['Madhu', 'Madhu']], s.deviceUser, v => saveSettings({ deviceUser: v }).then(saved), 'Who uses this device')),
       row('Device name', 'Shown in the tracker\'s Sync Log.', h('input', { class: 'field', id: 'devname', value: deviceName(), 'aria-label': 'Device name', onchange: e => saveSettings({ deviceName: e.target.value.trim() }).then(saved) }))),
@@ -399,6 +400,14 @@ function viewHelp() {
   return { title: 'Help', back: 'settings', body: [h('section', { class: 'card', id: 'helplist' }, h('div', { class: 'card-h' }, h('h2', {}, 'Tips')),
     ...Object.keys(TIPS).map(k => h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, NAMES[k] || k), h('div', { class: 'set-d' }, TIPS[k]))))),
     h('div', { class: 'btns' }, h('button', { class: 'btn', onclick: async () => { await saveSettings({ tipsSeen: [] }); toast('Tips will show again once on each screen'); } }, 'Show tips again'))] };
+}
+// Sign in & tracker (0.12.0): its own screen under More › App, so connecting needs no trip through Settings
+function viewSignin() {
+  const s = settings();
+  const whoRow = h('section', { class: 'card' }, h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, 'Who uses this device'), h('div', { class: 'set-d' }, 'Every change is tagged with this name.')),
+    h('div', { class: 'set-c' }, h('select', { class: 'field', id: 'signinwho', 'aria-label': 'Who uses this device', onchange: ev => saveSettings({ deviceUser: ev.target.value }).then(() => { toast('Saved'); render(); }) },
+      ...[['', 'Not set'], ['Aravind', 'Aravind'], ['Madhu', 'Madhu']].map(([v, l]) => h('option', { value: v, selected: v === (s.deviceUser || '') }, l))))));
+  return { title: 'Sign in & tracker', back: 'tracker', body: [whoRow, CONFIG.demo ? demoCard() : syncCard()] };
 }
 function demoCard() {
   return h('section', { class: 'card', id: 'democard' }, h('div', { class: 'card-h' }, h('h2', {}, 'Demo copy')),
@@ -555,6 +564,8 @@ async function render() {
     case 'documents': return shell(W.viewDocuments());
     case 'alerts': case 'checks': return shell(W.viewAlerts());
     case 'help': return shell(viewHelp());
+    case 'signin': return shell(viewSignin());
+    case 'epf': return shell(V12.viewEPF());
     case 'grouping': return shell(TV.viewGrouping());
     case 'more': return shell(TV.viewMoreTopics());
     case 'monthly': return shell(U.viewMonthly());
@@ -580,7 +591,7 @@ Object.assign(ctx, { V, F, settings, saveSettings, who, snap, go, render, queue,
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.__NO_SW__) {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* preview hosts may block it */ });
   }
-  Auth.init().then(() => { if (V.isUnlocked() && ['settings', 'home'].includes(state.view)) render(); }, e => console.warn(e.message));
+  Auth.init().then(() => { if (V.isUnlocked() && ['settings', 'home', 'signin'].includes(state.view)) render(); }, e => console.warn(e.message));
   // pull down from the top of a screen to sync
   pullToSync();
   try { history.replaceState({ v: 'home', root: true }, ''); } catch (e) { /* ignore */ }

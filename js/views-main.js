@@ -5,7 +5,7 @@ import { h, icon, toast, haptic, sheet, miniSpark, catIcon, catColor, seg, tag, 
 import { uuid } from './crypto.js';
 import { CONFIG } from './config.js';
 import { streakChip, activity, activityList, dueItems, approve, skip } from './views-extra.js';
-import { recapCard, openStory } from './views-insight.js';
+import { recapCard, openStory, openRecap, hasRecap, recapMonth } from './views-insight.js';
 import * as C2 from './views-c2.js';
 import { addSwitch, forPill, incomeList, viewIncome, micButton, amountRow, voiceSummary, parseVoice } from './views-income.js';
 import { swipeable, parseAmount, hasLongDigits, DIGITS_MSG, confirmAmount } from './ui.js';
@@ -88,7 +88,7 @@ export function viewHome() {
   const s = ctx.snap();
   if (!s && (state.syncing || (ctx.V.get('sync', 'file') && navigator.onLine && !(ctx.V.get('sync', 'state') || {}).lastError))) return { title: 'Home', body: [skeleton()] };
   if (!s) return { title: 'Home', body: [card('Welcome', null, h('p', {}, 'Your figures appear here after the first sync with the tracker in OneDrive.'), h('div', { class: 'spacer' }),
-    h('div', { class: 'btns' }, h('button', { class: 'btn primary', onclick: () => ctx.go('settings') }, 'Connect the tracker'), h('button', { class: 'btn', onclick: () => ctx.go('settings') }, 'Try with sample data')))] };
+    h('div', { class: 'btns' }, h('button', { class: 'btn primary', onclick: () => { state.topic = 'app'; ctx.go('signin'); } }, 'Connect the tracker'), h('button', { class: 'btn', onclick: () => ctx.go('settings') }, 'Try with sample data')))] };
   const p = state.person;
   const ym = thisMonth(); const mine = monthEntries(ym, p === 'Family' ? 'All' : p);
   const spent = sum(mine, e => e.amount); const budget = p === 'Family' ? sum(Object.values(C2.availableBudgets(ym)), x => x) : 0;
@@ -100,14 +100,49 @@ export function viewHome() {
     h('div', { class: 'kv3' },
       h('div', {}, h('div', { class: 't-l' }, 'Spent'), h('div', { class: 't-v num', id: 'homespent' }, F.inr(spent)), h('div', { class: 't-s' }, budget ? 'of ' + F.inr(budget) + ' budget' : (p === 'Family' ? 'No budget set' : 'Logged for ' + p))),
       h('div', {}, h('div', { class: 't-l' }, 'Income received'), h('div', { class: 't-v num', id: 'homeincome' }, F.inr(income)), h('div', { class: 't-s' }, income ? 'this month' : 'None added yet')),
-      h('div', {}, h('div', { class: 't-l' }, 'Left after spending'), h('div', { class: 't-v num', id: 'homeleft' }, income ? F.inr(left) : '–'), h('div', { class: 't-s' }, income ? F.pct(left / income, 0) + ' of income' : 'Add income to see this'))),
+      h('div', {}, h('div', { class: 't-l' }, 'Balance'), h('div', { class: 't-v num', id: 'homeleft' }, income ? F.inr(left) : '–'), h('div', { class: 't-s' }, income ? F.pct(left / income, 0) + ' of income' : 'Add income to see this'))),
     budget ? bar(frac, spentKind) : null);
   const addBtns = h('div', { class: 'btns addrow', id: 'homeadd' },
     h('button', { class: 'btn primary', id: 'homeaddexp', onclick: () => { state.editing = null; ctx.go('addexpense'); } }, icon('plus', 18), 'Add expense'),
     h('button', { class: 'btn', id: 'homeaddinc', onclick: () => { state.editing = null; ctx.go('addincome'); } }, icon('plus', 18), 'Add income'));
   const recent = activity(2);
   const recentCard = card('Recent entries', moreBtn('All', () => ctx.go('activity')), recent.length ? activityList(recent) : empty('Nothing logged yet.', 'Add expense', () => ctx.go('addexpense')));
-  return { title: 'Home', body: [h('div', { class: 'toolbar' }, personSeg()), monthCard, addBtns, todoCard(s), recentCard, streakChip()] };
+  return { title: 'Home', body: [h('div', { class: 'toolbar' }, personSeg()), monthCard, addBtns, todoCard(s), recapHome(ym, p), paceCard(ym, p), budgetsNearCard(ym, p), recentCard, streakChip()] };
+}
+
+// ---- Home tiles (0.12.0): recap one tap away, spending pace, budgets near their limit
+function recapHome(ym, p) {
+  const whoF = p === 'Family' ? 'All' : p; const ins = spendInsights(ym, whoF); const lm = recapMonth();
+  const rows = [];
+  rows.push(h('li', { class: 'li tap', id: 'homerecapnow', onclick: () => openStory([...ins.map((x, i) => ({ k: 'Insight ' + (i + 1) + ' of ' + ins.length, sub: F.maskText(x.text) })), { k: F.monthLabel(ym, true), big: 'That\'s all', sub: 'Insights compare this month with the months before.' }], 'This month so far', 'insightstory', 'Close') },
+    h('span', { class: 'lead', 'aria-hidden': 'true' }, icon('chart', 16)), h('div', { class: 'body' }, h('div', { class: 'ttl' }, F.MONTHS[new Date().getMonth()] + ' so far'), h('div', { class: 'sub' }, ins.length ? F.maskText(ins[0].text) : 'No insights yet this month')), icon('right', 16)));
+  if (hasRecap(lm)) rows.push(h('li', { class: 'li tap', id: 'homerecaplast', onclick: () => { openRecap(lm); ctx.render(); } },
+    h('span', { class: 'lead', 'aria-hidden': 'true' }, icon('play', 16)), h('div', { class: 'body' }, h('div', { class: 'ttl' }, F.monthLabel(lm, true) + ' recap'), h('div', { class: 'sub' }, 'Last month in a few cards')), icon('right', 16)));
+  if (!ins.length && rows.length === 1) return null;
+  return h('section', { class: 'card', id: 'homerecap' }, h('div', { class: 'card-h' }, h('h2', {}, 'Recap')), h('ul', { class: 'list' }, rows));
+}
+// spent so far this month against the same days of last month
+function paceCard(ym, p) {
+  const who = p === 'Family' ? 'All' : p; const day = new Date().getDate(); const lm = addMonths(ym, -1);
+  const now = sum(monthEntries(ym, who), e => e.amount);
+  const lastSame = sum(monthEntries(lm, who).filter(e => Number((e.date || '').slice(8, 10)) <= day), e => e.amount);
+  const lastAll = sum(monthEntries(lm, who), e => e.amount);
+  if (!now && !lastAll) return null;
+  const max = Math.max(now, lastSame, 1); const diff = lastSame ? (now - lastSame) / lastSame : null;
+  const line = (lbl, v, cls) => h('div', { class: 'pace-row' }, h('div', { class: 'row-between' }, h('span', { class: 'hint' }, lbl), h('span', { class: 'num strong' }, F.inr(v))), bar(v / max, cls));
+  return h('section', { class: 'card', id: 'homepace' }, h('div', { class: 'card-h' }, h('h2', {}, 'Spending pace'), diff === null ? null : tag((diff > 0 ? '+' : '') + F.pct(diff, 0) + ' vs last month', diff > 0.1 ? 'warn' : 'good')),
+    line('This month, day 1 to ' + day, now, diff !== null && diff > 0.1 ? 'warn' : 'good'), line(F.monthLabel(lm, true) + ', day 1 to ' + day, lastSame, ''),
+    h('p', { class: 'hint', style: { marginTop: '6px' } }, F.monthLabel(lm, true) + ' in full: ' + F.inr(lastAll)));
+}
+// the 3 category budgets closest to (or over) their limit
+function budgetsNearCard(ym, p) {
+  if (p !== 'Family') return null;
+  const bd = C2.budgetsFor(ym); const all = monthEntries(ym, 'All'); const byCat = {}; for (const e of all) byCat[e.category] = (byCat[e.category] || 0) + Number(e.amount);
+  const rows = Object.entries(bd).map(([c, x]) => ({ c, b: x.avail, sp: byCat[c] || 0 })).filter(x => x.b > 0 && x.sp > 0).map(x => ({ ...x, f: x.sp / x.b })).sort((a, b) => b.f - a.f).slice(0, 3);
+  if (!rows.length) return null;
+  return h('section', { class: 'card', id: 'homebudgets' }, h('div', { class: 'card-h' }, h('h2', {}, 'Budgets near their limit'), h('button', { class: 'more', onclick: () => C2.budgetEditor() }, 'Budgets', icon('right', 16))),
+    rows.map(x => { const k = x.f > 1 ? 'crit' : x.f > 0.85 ? 'warn' : 'good';
+      return h('div', { class: 'hbar' }, h('span', { class: 'ttl' }, x.c, x.f > 1 ? [' ', tag('Over', 'crit')] : null), h('span', { class: 'num' }, F.inr(x.sp), h('span', { class: 'faint' }, ' / ' + F.inr(x.b))), bar(x.f, k)); }));
 }
 
 // ---- To do: shown only when something needs doing
@@ -125,7 +160,7 @@ function todoItems(s) {
   for (const x of renew) out.push({ icon: 'shield', t: x.name + ' renews in ' + x.days + ' days', sub: x.renewal ? 'On ' + F.date(x.renewal) : '', go: 'protection' });
   if (day <= 5 && !monthClosed(s, addMonths(ym, -1))) out.push({ icon: 'wizard', id: 'monthenddue', t: 'Month-end update for ' + F.monthLabel(addMonths(ym, -1), true), sub: 'Holdings, saved & invested, balances and net worth', go: 'monthly' });
   const ho = handoverItem(); if (ho) out.push(ho);
-  const st = ctx.V.get('sync', 'state') || {}; if (st.lastError && !CONFIGDEMO()) out.push({ icon: 'sync', id: 'syncproblem', kind: 'crit', t: 'Sync problem', sub: String(st.lastError).slice(0, 120), go: 'settings' });
+  const st = ctx.V.get('sync', 'state') || {}; if (st.lastError && !CONFIGDEMO()) out.push({ icon: 'sync', id: 'syncproblem', kind: 'crit', t: 'Sync problem', sub: String(st.lastError).slice(0, 120), go: 'signin' });
   return out;
 }
 const CONFIGDEMO = () => !!CONFIG.demo;

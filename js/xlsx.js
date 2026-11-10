@@ -160,13 +160,14 @@ export class Workbook {
   appendTableRow(name, values) {
     const t = this.table(name);
     let r = null;
-    for (let rr = t.r1 + 1; rr <= t.r2; rr++) { if (t.cols.every((h, i) => { const v = this.get(t.sheet, n2col(t.c1 + i) + rr); return v === null || v === ''; })) { r = rr; break; } }
+    for (let rr = t.r1 + 1; rr <= t.r2; rr++) { if (t.cols.every((h, i) => { const ref = n2col(t.c1 + i) + rr; if (!(h in values) && this.isFormula(t.sheet, ref)) return true; const v = this.get(t.sheet, ref); return v === null || v === ''; })) { r = rr; break; } }
     if (r === null) {
       r = t.r2 + 1; const ref = n2col(t.c1) + t.r1 + ':' + n2col(t.c2) + r;
       t.el.setAttribute('ref', ref); const af = t.el.getElementsByTagNameNS(NS, 'autoFilter')[0]; if (af) af.setAttribute('ref', ref);
       this.dirty.add(t.path);
     }
-    t.cols.forEach((h, i) => { const ref = n2col(t.c1 + i) + r; const above = r > t.r1 + 1 ? this.style(t.sheet, n2col(t.c1 + i) + (r - 1)) : this.style(t.sheet, ref); this.set(t.sheet, ref, h in values ? values[h] : null, above); });
+    t.cols.forEach((h, i) => { const ref = n2col(t.c1 + i) + r; if (!(h in values) && this.isFormula(t.sheet, ref)) return; // worked out by the tracker (e.g. EPF counted so far): left alone
+      const above = r > t.r1 + 1 ? this.style(t.sheet, n2col(t.c1 + i) + (r - 1)) : this.style(t.sheet, ref); this.set(t.sheet, ref, h in values ? values[h] : null, above); });
     return r;
   }
   setTableCell(name, row, col, value) { const t = this.table(name); const i = t.cols.indexOf(col); if (i < 0) throw new Error('No column ' + col + ' in ' + name); this.set(t.sheet, n2col(t.c1 + i) + row, value); }

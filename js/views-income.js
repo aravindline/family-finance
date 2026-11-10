@@ -107,19 +107,21 @@ export function addSwitch(current, pill) {
 
 // ---------------------------------------------------------------- Income screen
 export function viewIncome() {
-  const who = state.incWho || 'Family'; const mode = state.incMode || 'Month on month';
-  const all = incomeList(); const list = who === 'Family' ? all : all.filter(e => e.person === who);
+  const who = state.incWho || 'Family'; const mode = state.incMode === 'Year' ? 'Year' : 'Month'; const kind = state.incKind || 'All income';
+  const all0 = incomeList(); const all = kind === 'Salary' ? all0.filter(e => e.category === 'Salary') : all0;
+  const list = who === 'Family' ? all : all.filter(e => e.person === who);
   const head = h('div', { class: 'toolbar' }, seg(['Family', ...PEOPLE], who, v => { state.incWho = v; ctx.render(); }, 'Whose income'),
-    seg(['Month on month', 'Year on year'], mode, v => { state.incMode = v; ctx.render(); }, 'Compare'));
+    seg(['All income', 'Salary'], kind, v => { state.incKind = v; ctx.render(); }, 'Which income'),
+    seg(['Month', 'Year'], mode, v => { state.incMode = v; ctx.render(); }, 'Compare by'));
   const addBtn = h('div', { class: 'btns', style: { margin: '0 0 12px' } }, h('button', { class: 'btn primary', id: 'addincbtn', onclick: () => ctx.go('addincome') }, icon('plus', 16), 'Add income'));
   const s = ctx.snap() || {};
   const note = !s.v22 ? h('p', { class: 'warn-text', style: { margin: '0 4px 12px' } }, 'The tracker in OneDrive is older than v22, so income can\'t be saved until v22 is uploaded.') : null;
-  if (!list.length) return { title: 'Income', back: 'more', body: [head, addBtn, note, card(null, null, empty('No income entries yet. Use the + button and switch to Income, or the button above.'))] };
+  if (!list.length) return { title: 'Income', back: 'more', body: [head, addBtn, note, card(null, null, empty(kind === 'Salary' ? 'No salary entries yet.' : 'No income entries yet. Use the + button and switch to Income, or the button above.'))] };
 
   const by = aggregate(list); const now = thisMonth();
   const months = Object.keys(by).filter(m => m <= now).sort(); const latest = months[months.length - 1] || now;
   const prev = addMonths(latest, -1), lastYear = addMonths(latest, -12);
-  const summary = card('Latest month · ' + F.monthLabel(latest, true), null,
+  const summary = card((kind === 'Salary' ? 'Salary · ' : '') + 'Latest month · ' + F.monthLabel(latest, true), null,
     h('div', { class: 'num', id: 'inclatest' }, F.inr(tot(by, latest))),
     h('div', { class: 'kv', style: { marginTop: '8px' } },
       h('span', {}, 'vs ' + F.monthLabel(prev, true)), h('span', {}, gTag(growth(tot(by, latest), tot(by, prev))), ' ', F.inr(tot(by, prev))),
@@ -130,34 +132,35 @@ export function viewIncome() {
   const partsOf = m => { const b = by[m] || { c: {} }; const p = shown.map(c => b.c[c] || 0); if (rest.length) p.push(rest.reduce((a, c) => a + (b.c[c] || 0), 0)); return p; };
 
   let body;
-  if (mode === 'Month on month') {
+  // one table: LY vs TY with the change in ₹ and %, by month (this financial year) or by financial year
+  const fySh = y => 'FY' + String(y + 1).slice(2);
+  const fyMonths = y => Array.from({ length: 12 }, (_, k) => addMonths(y + '-04', k));
+  const sumOf = (ms, f) => ms.reduce((a, m) => a + f(m), 0);
+  const lytyRow = (label, ly, ty, cls) => h('tr', cls ? { class: cls } : {}, td(label, ''), td(ly ? F.inrShort(ly) : '–'), td(ty ? F.inrShort(ty) : '–'), td(ly || ty ? h('span', { class: ty - ly >= 0 ? 'gain' : 'loss' }, F.signed(ty - ly, F.inrShort)) : '–'), td(gTag(growth(ty, ly))));
+  const fy = fyOf(latest); const what = kind === 'Salary' ? 'Salary' : 'Income';
+  if (mode === 'Month') {
     const span = []; for (let i = 11; i >= 0; i--) span.push(addMonths(latest, -i));
     const spent = spentBy(who); const monthly = s.monthly || [];
     const rate = m => { const r = monthly.find(x => (x.month || '').slice(0, 7) === m); return r && r.savingsRate !== null && r.savingsRate !== undefined && r.saved ? r.savingsRate : null; };
-    const byCat = card('Income by month', null,
-      columnChart(span.map(m => ({ x: F.monthLabel(m), parts: partsOf(m) })), { series: series.map(shortCat), colors: SERIES, label: 'Income by month and category' }),
-      table(['Month', 'Income', 'vs last month'], span.slice().reverse().filter(m => by[m]).map(m => h('tr', {}, td(F.monthLabel(m), ''), td(F.inr(tot(by, m))), td(gTag(growth(tot(by, m), tot(by, addMonths(m, -1))))))), 'incmom'));
-    const sav = card('Income, spending and savings', null,
+    const cur = fyMonths(fy).filter(m => m <= latest);
+    const rows = cur.slice().reverse().map(m => lytyRow(F.monthLabel(m), tot(by, addMonths(m, -12)), tot(by, m)));
+    const tA = sumOf(cur, m => tot(by, m)), tB = sumOf(cur, m => tot(by, addMonths(m, -12)));
+    rows.push(lytyRow(fySh(fy) + ' so far', tB, tA, 'totrow'));
+    const lyty = card(what + ' · LY vs TY', null, h('p', { class: 'hint' }, 'TY = ' + fySh(fy) + ', LY = the same month a year before.'), table(['Month', 'LY', 'TY', 'Change', 'Growth'], rows, 'inclyty'));
+    const byCat = card(what + ' by month', null,
+      columnChart(span.map(m => ({ x: F.monthLabel(m), parts: partsOf(m) })), { series: series.map(shortCat), colors: SERIES, label: what + ' by month and category' }));
+    const sav = kind === 'Salary' ? null : card('Income, spending and savings', null,
       trendChart(span.map(m => ({ x: F.monthLabel(m), y: tot(by, m) ? (tot(by, m) - (spent[m] || 0)) / tot(by, m) : 0 })), { fmt: v => F.pct(v, 0), label: 'Share of income left after spending' }),
       table(['Month', 'Income', 'Spent', 'Left', 'Saved'], span.slice().reverse().filter(m => by[m] || spent[m]).map(m => { const i = tot(by, m), sp = spent[m] || 0; const r = rate(m);
         return h('tr', {}, td(F.monthLabel(m), ''), td(F.inrShort(i)), td(F.inrShort(sp)), td(i ? F.pct((i - sp) / i, 0) : '–'), td(r === null ? '–' : F.pct(r, 0))); }), 'incsavings'),
       h('p', { class: 'hint', style: { marginTop: '6px' } }, 'Left = share of income left after daily spending (the line). Spent = daily expenses' + (who === 'Family' ? '' : ' for ' + who) + '. Saved = the tracker\'s savings rate (saved and invested ÷ income), once that month is filled in.'));
-    body = [byCat, sav];
+    body = [lyty, byCat, sav].filter(Boolean);
   } else {
-    const fy = fyOf(latest); const fyMonths = y => Array.from({ length: 12 }, (_, k) => addMonths(y + '-04', k));
-    const cur = fyMonths(fy), old = fyMonths(fy - 1); const lastIdx = cur.indexOf(latest);
-    const sumOf = (ms, f) => ms.reduce((a, m) => a + f(m), 0);
-    const ytdCur = cur.slice(0, lastIdx + 1), ytdOld = old.slice(0, lastIdx + 1);
-    const catRows = cats.map(c => { const a = sumOf(ytdCur, m => (by[m] && by[m].c[c]) || 0), b = sumOf(ytdOld, m => (by[m] && by[m].c[c]) || 0); return h('tr', {}, td(shortCat(c), ''), td(F.inr(b)), td(F.inr(a)), td(gTag(growth(a, b)))); });
-    const tA = sumOf(ytdCur, m => tot(by, m)), tB = sumOf(ytdOld, m => tot(by, m));
-    catRows.push(h('tr', { class: 'totrow' }, td('Total', ''), td(F.inr(tB)), td(F.inr(tA)), td(gTag(growth(tA, tB)))));
-    const yoyCat = card(fyLabel(fy) + ' vs ' + fyLabel(fy - 1), null, h('p', { class: 'hint' }, 'April to ' + F.monthLabel(latest) + ' in both years.'), table(['Category', fyLabel(fy - 1), fyLabel(fy), 'Growth'], catRows, 'incyoy'));
-    const monthRows = cur.map((m, k) => { const a = tot(by, m), b = tot(by, old[k]); if (!a && !b) return null; return h('tr', {}, td(F.monthLabel(m), ''), td(F.inr(b)), td(F.inr(a)), td(gTag(growth(a, b)))); }).filter(Boolean);
-    const yoyMonth = card('Same month, a year apart', null, table(['Month', fyLabel(fy - 1), fyLabel(fy), 'Growth'], monthRows, 'incyoym'));
     const years = [...new Set(Object.keys(by).map(fyOf))].sort();
-    const fyRows = years.map((y, i) => { const a = sumOf(fyMonths(y), m => tot(by, m)); const b = i ? sumOf(fyMonths(years[i - 1]), m => tot(by, m)) : null; return h('tr', {}, td(fyLabel(y), ''), td(F.inr(a)), td(b === null ? '–' : gTag(growth(a, b)))); });
-    const fyCard = card('Financial-year totals', null, table(['Year', 'Income', 'Growth'], fyRows, 'incfy'), h('p', { class: 'hint', style: { marginTop: '6px' } }, 'The running year is part-way, so its growth looks lower until March.'));
-    body = [yoyCat, yoyMonth, fyCard];
+    const lastIdx = fyMonths(fy).indexOf(latest);
+    const rows = years.slice().reverse().map(y => { const a = sumOf(fyMonths(y), m => tot(by, m)), b = sumOf(fyMonths(y - 1), m => tot(by, m)); return lytyRow(fySh(y) + (y === fy ? ' (so far)' : ''), b, a); });
+    if (lastIdx >= 0 && lastIdx < 11) { const ms = fyMonths(fy).slice(0, lastIdx + 1); rows.unshift(lytyRow(fySh(fy) + ' Apr–' + F.monthLabel(latest).split(' ')[0] + ' vs same months', sumOf(ms, m => tot(by, addMonths(m, -12))), sumOf(ms, m => tot(by, m)), 'totrow')); }
+    body = [card(what + ' · LY vs TY', null, h('p', { class: 'hint' }, 'Each financial year (April to March) against the one before. The first row compares the same months, as this year is part-way.'), table(['Year', 'LY', 'TY', 'Change', 'Growth'], rows, 'inclyty'))];
   }
   let vs = null;
   if (who === 'Family') {
@@ -166,9 +169,9 @@ export function viewIncome() {
     const ytdOld = ytd.map(m => addMonths(m, -12)); const allYtd = ytd.reduce((t, m) => t + tot(by, m), 0);
     const pRows = PEOPLE.map(p => { const a = ytd.reduce((t, m) => t + ((by[m] && by[m].p[p]) || 0), 0), b = ytdOld.reduce((t, m) => t + ((by[m] && by[m].p[p]) || 0), 0);
       return h('tr', {}, td(p, ''), td(F.inr(a)), td(allYtd ? F.pct(a / allYtd, 0) : '–'), td(gTag(growth(a, b)))); });
-    vs = card('Madhu vs Aravind', null,
+    vs = card((kind === 'Salary' ? 'Salary · ' : '') + 'Madhu vs Aravind', null,
       columnChart(span.map(m => ({ x: F.monthLabel(m), parts: PEOPLE.map(p => (by[m] && by[m].p[p]) || 0) })), { series: PEOPLE, colors: [SERIES[0], SERIES[1]], label: 'Income by person and month' }),
-      table(['Person', fyLabel(fy) + ' so far', 'Share', 'vs last year'], pRows, 'incvs'));
+      table(['Person', 'FY' + String(fy + 1).slice(2) + ' so far', 'Share', 'vs LY'], pRows, 'incvs'));
   }
   const entries = list.filter(e => e.month === latest).sort((a, b) => b.date.localeCompare(a.date));
   const entCard = card('Entries in ' + F.monthLabel(latest, true), null, h('ul', { class: 'list', id: 'inclist' }, entries.map(entryLi)));

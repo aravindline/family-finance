@@ -12,7 +12,7 @@ import { col2n, n2col, splitRef } from './xlsx.js';
 import { isTidy, readArea, toTidy, TIDY } from './kite.js';
 
 const blank = v => v === null || v === undefined || v === '';
-const HISTORY = new Set(['tblDaily', 'tblIncome', 'tblEvents', 'tblLent', 'tblRepaid', 'tblBudget', 'tblChartNotes', 'tblSyncLog', 'tblAppMeta', 'tblInvestedHist']);
+const HISTORY = new Set(['tblDaily', 'tblIncome', 'tblEvents', 'tblLent', 'tblRepaid', 'tblBudget', 'tblChartNotes', 'tblSyncLog', 'tblAppMeta', 'tblInvestedHist', 'tblEPF', 'tblGoalLinks']);
 const META = 'tblAppMeta';
 // Input cells a version removed on purpose (approved by Aravind). A value typed there is listed as "not carried over",
 // so the move can still go ahead. Key = the version that removed them.
@@ -92,6 +92,32 @@ export function moveData(oldWb, newWb) {
     for (let r = TIDY.start; r < TIDY.start + TIDY.rows; r++) { const row = rows[r - TIDY.start]; for (let k = 0; k < 5; k++) { const ref = TIDY.cols[k] + r; skipPaste.add(ref); const v = row ? row[k] : null; if (!blank(v)) put('Paste Holdings', ref, v); else if (!blank(newWb.get('Paste Holdings', ref))) newWb.set('Paste Holdings', ref, null); } }
     notes.push('Kite holdings converted to one row per stock per account: ' + rows.length + ' rows.');
   }
+  // ---- 2b. v28: EPF is set on the EPF sheet. Typed EPF figures become EPF entries, so nothing is lost:
+  //  the last EPF balance per person -> an "Opening balance" for the month of the move;
+  //  each past month's EPF figure -> a one-month entry (person "Family"), so past months show the same as before.
+  const skipCell = new Set();
+  if ((vFrom || 0) < 28 && (vTo || 0) >= 28 && newWb.tables.tblEPF) {
+    const today = new Date(); const ser = (y, m) => Math.round((Date.UTC(y, m - 1, 1) - Date.UTC(1899, 11, 30)) / 86400000);
+    const monthSer = v => { if (typeof v === 'number') { const d = new Date(Date.UTC(1899, 11, 30) + v * 86400000); return ser(d.getUTCFullYear(), d.getUTCMonth() + 1); } const m = /^(\d{4})-(\d{2})/.exec(String(v || '')); return m ? ser(+m[1], +m[2]) : null; };
+    let n = 0; const add = (person, kind, amount, from, to, note, sheet, ref) => {
+      n++; const row = newWb.appendTableRow('tblEPF', { 'Entry ID': 'EPF-MOVED-' + n, Person: person, Kind: kind, 'Amount (₹)': amount, 'From month': from, 'To month': to, Notes: note, 'Entered by': 'Move to v28', 'Entered at': today.toISOString().slice(0, 16).replace('T', ' '), Status: 'Active' });
+      copied.push({ sheet: 'EPF', ref: 'D' + row, value: amount }); skipCell.add(sheet + '|' + ref);
+    };
+    if (oldWb.hasSheet('Other Assets')) {
+      const g = oldWb.grid('Other Assets');
+      for (const [r, m] of g) { const a = m.get(1); if (typeof a !== 'string' || !/^EPF/i.test(a.trim()) || r < 7) continue;
+        [['D', 'Aravind'], ['E', 'Madhu']].forEach(([c, p]) => { const ref = c + r; if (oldWb.isFormula('Other Assets', ref)) return; const v = oldWb.get('Other Assets', ref); if (typeof v === 'number' && v) add(p, 'Opening balance', v, ser(today.getFullYear(), today.getMonth() + 1), null, 'EPF balance carried from v' + vFrom, 'Other Assets', ref); });
+        break; }
+    }
+    const T = 'Income & Investment Tracker';
+    if (oldWb.hasSheet(T)) {
+      const g = oldWb.grid(T); let hr = null, hc = null;
+      for (const [r, m] of g) { for (const [c, v] of m) if (typeof v === 'string' && /^EPF \/ VPF/.test(v.trim())) { hr = r; hc = c; break; } if (hr) break; }
+      if (hr) for (const [r, m] of g) { if (r <= hr) continue; const ref = n2col(hc) + r; if (oldWb.isFormula(T, ref)) continue; const v = m.get(hc); if (typeof v !== 'number' || !v) continue;
+        const ms = monthSer(m.get(1)); if (ms === null) continue; add('Family', 'Monthly contribution', v, ms, ms, 'Month-end EPF figure carried from v' + vFrom, T, ref); }
+    }
+    if (n) notes.push('EPF: ' + n + ' typed figure' + (n > 1 ? 's' : '') + ' carried to the new EPF sheet (balance as an opening balance this month, past months as they were).');
+  }
   // ---- 3. every other input cell
   const ob = tableBoxes(oldWb, HISTORY);
   for (const sheet of Object.keys(oldWb.sheetPath)) {
@@ -112,6 +138,7 @@ export function moveData(oldWb, newWb) {
       if (inBox(ob[sheet], ref)) continue; // handled with its table
       if (sheet === 'Paste Holdings' && (skipPaste.has(ref) || (!oldTidy && splitRef(ref)[1] >= 13))) continue;
       if (sheet === 'Paste Holdings' && newTidy && splitRef(ref)[1] >= 6 && splitRef(ref)[1] <= 11 && /^APP/i.test(String(oldWb.get(sheet, 'A' + splitRef(ref)[1]) || ''))) continue; // combined app slots are not used from v25
+      if (skipCell.has(sheet + '|' + ref)) continue; // carried to the EPF sheet above
       const v = oldWb.get(sheet, ref); if (blank(v)) continue;
       const mv = movedBy(vFrom, vTo, sheet, ref); if (mv && nin && nin.has(mv)) { put(sheet, mv, v); continue; }
       if (sheet === 'Other Holdings' && ref === 'A7' && String(v).trim().toUpperCase() === 'USD' && (vTo || 0) >= 26 && (vFrom || 0) < 26) continue; // USD is built in from v26

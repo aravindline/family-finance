@@ -28,6 +28,7 @@ export const TOPICS = [
   { id: 'cash', icon: 'bank', title: 'Cash & fixed income', sub: 'Bank, FD/RD, EPF, NPS, bonds, money lent', items: [
     ['form', 'assets', 'bank', 'Bank, deposits and other assets', 'Savings, FD/RD, EPF, NPS and more, for Aravind and Madhu'],
     ['form', 'fd', 'calendar', 'FD / RD details', 'Rates and maturity dates, for reminders'],
+    ['view', 'epf', 'bank', 'EPF', 'Opening balance, monthly amount for the year, interest when credited'],
     ['view', 'lent', 'hand', 'Money lent', 'Who owes you, and when to follow up'],
     ['topic', 'mf', 'pie', 'Funds and bonds outside demat', 'Kept under Mutual funds']] },
   { id: 'gold', icon: 'g_coin', title: 'Gold & other assets', sub: 'Physical gold, vehicles', items: [['form', 'gold'], ['form', 'vehicles']] },
@@ -39,8 +40,9 @@ export const TOPICS = [
     ['view', 'handover', 'shield', 'Handover', 'If something happens: accounts, contacts, access and steps'],
     ['view', 'year', 'chart', 'Year in review', 'Financial year income, spending, savings rate, net worth and goals'],
     ['head', 'Update'], ['form', 'insurance'], ['form', 'documents'], ['form', 'nominees'], ['form', 'wills']] },
-  { id: 'app', icon: 'gear', title: 'App', sub: 'Settings, suggestions, lock', items: [
-    ['view', 'settings', 'gear', 'Settings', 'Sync, lock, fingerprint, theme, backup, new tracker version'],
+  { id: 'app', icon: 'gear', title: 'App', sub: 'Sign in, settings, suggestions, lock', items: [
+    ['view', 'signin', 'sync', 'Sign in & tracker', 'Microsoft account, the tracker file, last sync'],
+    ['view', 'settings', 'gear', 'Settings', 'Lock, fingerprint, theme, backup, new tracker version'],
     ['view', 'suggest', 'msg', 'Suggestion box', 'Ideas and problems with the app'],
     ['act', 'lock', 'lock', 'Lock now', 'Locks the app on this device'],
     ['head', 'Advanced lists'], ['view', 'grouping', 'pie', 'How holdings are grouped', 'Holding types and classes, and the grouping rules']] },
@@ -73,7 +75,7 @@ function badge(id, s) {
 export function viewMoreTopics() {
   const s = ctx.snap();
   const month = h('section', { class: 'card', id: 'monthstrip' }, h('div', { class: 'li tap', onclick: () => ctx.go('monthly') }, h('span', { class: 'lead' }, icon('wizard')),
-    h('div', { class: 'body' }, h('div', { class: 'ttl' }, 'Month-end update'), h('div', { class: 'sub' }, 'Pick the month, then 9 short steps')), icon('right', 16)));
+    h('div', { class: 'body' }, h('div', { class: 'ttl' }, 'Month-end update'), h('div', { class: 'sub' }, 'Pick the month, then 8 short steps')), icon('right', 16)));
   const tiles = h('div', { class: 'tiles', id: 'topics' }, TOPICS.map(t => h('button', { type: 'button', class: 'tile', 'data-topic': t.id, onclick: () => { state.topic = t.id; state.fromTopic = null; ctx.go('tracker'); } },
     h('div', { class: 't-l' }, icon(t.icon, 16), badge(t.id, s)), h('div', { class: 't-v tile-name', style: { fontSize: '1rem' } }, t.title), h('div', { class: 't-s', style: { whiteSpace: 'normal' } }, t.sub))));
   return { title: 'More', body: [month, h('div', { class: 'spacer' }), tiles] };
