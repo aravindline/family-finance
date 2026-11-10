@@ -13,6 +13,8 @@ function moneyInput(id, value, label, onChange) {
   return h('input', { class: 'field num', id, inputmode: 'decimal', value: show(value), 'aria-label': label, placeholder: '0', style: { textAlign: 'right', maxWidth: '170px' },
     oninput: e => onChange(e.target.value) });
 }
+// one money box per person, each with its own name and a faint tint so the two are never mixed up (phone and laptop)
+const pbox = (who, input) => input ? h('label', { class: 'pbox ' + (who === 'Madhu' ? 'pm' : 'pa') }, h('span', { class: 'pbox-l' }, who), input) : null;
 const fieldRow = (label, sub, input) => h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, label), sub ? h('div', { class: 'set-d' }, sub) : null), h('div', { class: 'set-c' }, input));
 
 // pending edits from this device for a cell (so the wizard shows what you typed, not the stale value)
@@ -23,12 +25,20 @@ function pendingValue(sheet, ref) {
 const cur = (sheet, cell) => { const p = pendingValue(sheet, cell.ref); return p !== undefined ? p : cell.v; };
 
 // ---------------------------------------------------------------- Month-end update
-// Pick the month, then 9 steps one by one. NPS is yearly, so it is not here (More › Cash & fixed income).
-const STEPS = ['Month', 'Kite holdings', 'International prices and currency rates', 'CAS statement', 'Saved & invested', 'Bank balances', 'FD / RD', 'EPF', 'Loans', 'Net worth and close the month'];
-const OA_STEP = { 5: /savings|current account|bank/i, 6: /fixed deposit|recurring deposit|corporate fd|post office|\bFD\b|\bRD\b|NSC|KVP|SCSS/i, 7: /EPF|VPF/i };
+// Pick the month, then 8 steps one by one. NPS is yearly (More › Cash & fixed income). EPF fills itself from the EPF sheet
+// (tracker v28; on older trackers its rows show with FD / RD).
+const STEPS = ['Month', 'Kite holdings', 'International prices and currency rates', 'CAS statement', 'Saved & invested', 'Bank balances', 'FD / RD', 'Loans', 'Net worth and close the month'];
+const S_BANK = 5, S_FD = 6, S_LOANS = 7;
+const OA_STEP = { 5: /savings|current account|bank/i, 6: /fixed deposit|recurring deposit|corporate fd|post office|\bFD\b|\bRD\b|NSC|KVP|SCSS/i };
 const OA_OTHER = /NPS|PPF|Sukanya|gold|silver|vehicle|money lent/i; // yearly or worked out elsewhere: not in the monthly steps
+const IS_EPF = /EPF|VPF/i;
 // the row's Type decides; a row with no Type is placed by its name; anything that fits nowhere shows under Bank balances
-const oaStep = r => { const t = show(r.type.v) || show(r.name.v); for (const k of [7, 6, 5]) if (OA_STEP[k].test(t)) return k; return OA_OTHER.test(t) ? 0 : 5; };
+const oaStep = (r, v28) => { const t = show(r.type.v) || show(r.name.v); if (IS_EPF.test(t)) return v28 ? 0 : 6; for (const k of [6, 5]) if (OA_STEP[k].test(t)) return k; return OA_OTHER.test(t) ? 0 : 5; };
+// rows from the blank tracker that nobody has used yet (shown only after "+ Add account")
+const TEMPLATE = /^(Savings account \d+|Fixed deposit \d+|Recurring deposit|Corporate FD|Post office \(NSC \/ KVP \/ SCSS \/ MIS\))$/;
+const MAX_SAVINGS = 4; // per person, as Aravind asked (10 Nov 2026); more can still be added from the topic screen
+// EPF going in for a month, from the EPF sheet (monthly contributions in force that month)
+export function epfForMonth(s, ym) { return (s.epf || []).filter(e => e.kind === 'Monthly contribution' && e.from && e.from.slice(0, 7) <= ym && (!e.to || e.to.slice(0, 7) >= ym)).reduce((t, e) => t + (Number(e.amount) || 0), 0); }
 const fundIsDebt = t => /debt|arbitrage|liquid|gilt|money market|overnight|bond/i.test(t || '');
 // invested amount (buy cost) per bucket from the holdings as last synced: Kite = everything in demat, CAS = folios outside demat
 export function investedNow(s) {
@@ -60,9 +70,37 @@ export function viewMonthly() {
   const mField = (k, sub) => inp.monthlyFormula[k] || !row.cols[k] ? null : fieldRow(L[k] || k, sub, moneyInput('m-' + k, val('m' + k, MT, row.cols[k]), L[k] || k, v => setE('m' + k, MT, row.cols[k], v, (L[k] || k) + ' · ' + F.monthLabel(row.month, true))));
   const open = (view, extra) => { Object.assign(state, extra || {}); state.fromWiz = view; ctx.go(view); };
   const linkRow = (ttl, sub, view, extra, id) => h('li', { class: 'li tap', id, onclick: () => open(view, extra) }, h('span', { class: 'lead' }, icon('upload', 16)), h('div', { class: 'body' }, h('div', { class: 'ttl' }, ttl), h('div', { class: 'sub' }, sub)), icon('right', 16));
-  const oaRows = st => h('div', {}, ...inp.otherAssets.filter(r => oaStep(r) === st && !(r.aravind.f && r.madhu.f)).map(r => h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, show(r.name.v)), h('div', { class: 'set-d' }, [r.where.v, r.type.v].filter(Boolean).join(' · '))),
-    h('div', { class: 'set-c' }, r.aravind.f ? null : moneyInput('oa-a-' + r.row, val('oaA' + r.row, 'Other Assets', r.aravind), show(r.name.v) + ', Aravind', v => setE('oaA' + r.row, 'Other Assets', r.aravind, v, show(r.name.v) + ' · Aravind')),
-      r.madhu.f ? null : moneyInput('oa-m-' + r.row, val('oaM' + r.row, 'Other Assets', r.madhu), show(r.name.v) + ', Madhu', v => setE('oaM' + r.row, 'Other Assets', r.madhu, v, show(r.name.v) + ' · Madhu'))))));
+  const setT = (k, cell, text, label) => { E[k] = { sheet: 'Other Assets', ref: cell.ref, base: cell.v, value: text, label, text: true }; };
+  const nm = r => (E['oaN' + r.row] ? E['oaN' + r.row].value : show(r.name.v));
+  const hasVal = (k, cell) => { const v = val(k, 'Other Assets', cell); return v !== null && v !== undefined && v !== '' && !Number.isNaN(Number(v)); };
+  W.added = W.added || {};
+  const inUse = r => W.added[r.row] || hasVal('oaA' + r.row, r.aravind) || hasVal('oaM' + r.row, r.madhu) || !!show(r.where.v) || !TEMPLATE.test(show(r.name.v));
+  const whoShown = r => { const a = hasVal('oaA' + r.row, r.aravind), m = hasVal('oaM' + r.row, r.madhu); if (W.added[r.row]) return { a: W.added[r.row] === 'Aravind' || a, m: W.added[r.row] === 'Madhu' || m }; return a || m ? { a, m } : { a: true, m: true }; };
+  const stepRows = st => inp.otherAssets.filter(r => oaStep(r, s.v28) === st && !(r.aravind.f && r.madhu.f));
+  const oaRows = st => h('div', {}, ...stepRows(st).filter(inUse).map(r => { const w = whoShown(r); return h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, nm(r)), h('div', { class: 'set-d' }, [E['oaB' + r.row] ? E['oaB' + r.row].value : r.where.v, r.type.v].filter(Boolean).join(' · '))),
+    h('div', { class: 'set-c' }, r.aravind.f || !w.a ? null : pbox('Aravind', moneyInput('oa-a-' + r.row, val('oaA' + r.row, 'Other Assets', r.aravind), show(r.name.v) + ', Aravind', v => setE('oaA' + r.row, 'Other Assets', r.aravind, v, show(r.name.v) + ' · Aravind'))),
+      r.madhu.f || !w.m ? null : pbox('Madhu', moneyInput('oa-m-' + r.row, val('oaM' + r.row, 'Other Assets', r.madhu), show(r.name.v) + ', Madhu', v => setE('oaM' + r.row, 'Other Assets', r.madhu, v, show(r.name.v) + ' · Madhu'))))); }));
+  // "+ Add account": takes the next unused row of this step and names it for one person
+  const addBox = st => {
+    const free = stepRows(st).filter(r => !inUse(r)); const isBank = st === S_BANK;
+    const count = who => stepRows(st).filter(r => inUse(r) && whoShown(r)[who === 'Aravind' ? 'a' : 'm'] && /savings/i.test(show(r.type.v) || show(r.name.v))).length;
+    if (!free.length) return h('p', { class: 'hint' }, 'All rows are in use. More can be added in More › Cash & fixed income.');
+    const A = W.addForm && W.addForm.st === st ? W.addForm : null;
+    if (!A) return h('button', { class: 'btn', id: 'oaadd', style: { marginTop: '8px' }, onclick: () => { W.addForm = { st, who: ctx.who() || 'Aravind', name: '', bank: '' }; ctx.render(); } }, icon('plus', 16), isBank ? 'Add account' : 'Add FD / RD');
+    const full = isBank && count(A.who) >= MAX_SAVINGS;
+    return h('div', { class: 'card inset', id: 'oaaddform', style: { marginTop: '8px' } },
+      fieldRow('Whose', null, seg(['Aravind', 'Madhu'], A.who, v => { A.who = v; ctx.render(); }, 'Whose account')),
+      fieldRow('Name', 'e.g. HDFC savings ••1234 (last 4 digits only)', h('input', { class: 'field', id: 'oaaddname', maxlength: 40, value: A.name, oninput: e => { A.name = e.target.value; } })),
+      fieldRow('Bank', null, h('input', { class: 'field', id: 'oaaddbank', maxlength: 40, value: A.bank, oninput: e => { A.bank = e.target.value; } })),
+      full ? h('p', { class: 'warn-text' }, A.who + ' already has ' + MAX_SAVINGS + ' savings accounts here.') : null,
+      h('div', { class: 'btns' }, h('button', { class: 'btn', onclick: () => { W.addForm = null; ctx.render(); } }, 'Cancel'),
+        h('button', { class: 'btn primary', id: 'oaaddok', disabled: full, onclick: () => {
+          const n = A.name.trim(); if (!n) return toast('Give the account a name', 'bad');
+          if (/\d{5,}/.test(n + A.bank)) return toast('Last 4 digits only. Never type a full account number.', 'bad');
+          const r = free[0]; W.added[r.row] = A.who;
+          setT('oaN' + r.row, r.name, n, 'Other Assets · name of row ' + r.row); if (A.bank.trim()) setT('oaB' + r.row, r.where, A.bank.trim(), n + ' · bank');
+          W.addForm = null; ctx.render(); } }, 'Add')));
+  };
   const pendingPaste = ctx.V.all('outbox').some(o => o.kind === 'kitePaste' || (o.kind === 'setCells' && /Other Holdings|Intl/i.test(o.sheet || '')));
   const step = W.step;
   let content;
@@ -86,18 +124,20 @@ export function viewMonthly() {
     const note = !s.v27 ? h('p', { class: 'warn-text' }, 'Your tracker is older than v27, so "invested this month" can\'t be worked out. Type the figures yourself.')
       : dl.d ? h('div', { class: 'hint', id: 'autoinv' }, 'Worked out from the invested amount (buy cost) since ' + F.monthLabel(dl.prev.month, true) + ': Indian equity ' + F.signed(dl.d.ind, F.inr) + ', equity funds ' + F.signed(dl.d.eqf, F.inr) + ', international ' + F.signed(dl.d.intl, F.inr) + ', debt & arbitrage funds ' + F.signed(dl.d.debt, F.inr) + '. Sales show as minus. Change any box if needed.')
       : h('p', { class: 'hint', id: 'autoinv' }, 'First month: today\'s invested amounts are saved when you close the month, and from next month equity, international and debt fill in by themselves.');
+    const spareUsed = k => { const c = row.cols[k]; return (L[k] && !/^Spare \d/i.test(L[k])) || (c && c.v !== null && c.v !== undefined && c.v !== ''); };
+    const epfRow = inp.monthlyFormula.epf && row.cols.epf ? fieldRow(L.epf || 'EPF / VPF', 'From the EPF sheet (More › Cash & fixed income › EPF)', h('span', { class: 'num strong', id: 'm-epf-auto' }, F.inr(epfForMonth(s, ym)))) : mField('epf');
     content = [h('p', { class: 'hint' }, 'What went into each bucket this month (₹).'), note, pendingPaste ? h('p', { class: 'warn-text' }, 'A holdings paste is still waiting to sync. Sync first so these figures include it.') : null,
-      ...['bank', 'epf', 'equity', 'intl', 'gold', 'debt', 'reits', 'spare1', 'spare2'].map(k => mField(k))];
-  } else if (step >= 5 && step <= 7) {
-    const has = inp.otherAssets.some(r => oaStep(r) === step && !(r.aravind.f && r.madhu.f));
-    content = has ? [h('p', { class: 'hint' }, 'Month-end balances. Leave unchanged if the same.'), oaRows(step), h('p', { class: 'hint', style: { marginTop: '6px' } }, 'Left box: Aravind. Right box: Madhu.')]
+      h('div', { class: 'label-sm', style: { marginTop: '10px' } }, 'Filled for you · check'), ...['equity', 'intl', 'debt'].map(k => mField(k, 'From Kite, CAS and Intl Holdings')), epfRow,
+      h('div', { class: 'label-sm', style: { marginTop: '14px' } }, 'Type if any'), mField('bank'), mField('gold'), mField('reits'), ...['spare1', 'spare2'].filter(spareUsed).map(k => mField(k))];
+  } else if (step === S_BANK || step === S_FD) {
+    const any = stepRows(step).length;
+    content = any ? [h('p', { class: 'hint' }, step === S_BANK ? 'Month-end balance of each account. Leave unchanged if the same.' : 'Month-end value of each FD / RD. Leave unchanged if the same.'), oaRows(step), addBox(step)]
       : [empty('No ' + STEPS[step] + ' rows on the Other Assets sheet. Add them in More › Cash & fixed income.')];
-  } else if (step === 8) {
+  } else if (step === S_LOANS) {
     const rows = inp.loans;
     content = rows.length ? [h('p', { class: 'hint' }, 'Outstanding at month-end, from the lender\'s statement.'), ...rows.map(r => h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, show(r.name.v)), h('div', { class: 'set-d' }, show(r.lender.v))),
-      h('div', { class: 'set-c' }, r.aravind.f ? null : moneyInput('ln-a-' + r.row, val('lnA' + r.row, 'Loans', r.aravind), show(r.name.v) + ', Aravind', v => setE('lnA' + r.row, 'Loans', r.aravind, v, show(r.name.v) + ' · Aravind outstanding')),
-        r.madhu.f ? null : moneyInput('ln-m-' + r.row, val('lnM' + r.row, 'Loans', r.madhu), show(r.name.v) + ', Madhu', v => setE('lnM' + r.row, 'Loans', r.madhu, v, show(r.name.v) + ' · Madhu outstanding')))))
-      , h('p', { class: 'hint', style: { marginTop: '6px' } }, 'Left box: Aravind. Right box: Madhu.')] : [empty('No loans on the Loans sheet.')];
+      h('div', { class: 'set-c' }, r.aravind.f ? null : pbox('Aravind', moneyInput('ln-a-' + r.row, val('lnA' + r.row, 'Loans', r.aravind), show(r.name.v) + ', Aravind', v => setE('lnA' + r.row, 'Loans', r.aravind, v, show(r.name.v) + ' · Aravind outstanding'))),
+        r.madhu.f ? null : pbox('Madhu', moneyInput('ln-m-' + r.row, val('lnM' + r.row, 'Loans', r.madhu), show(r.name.v) + ', Madhu', v => setE('lnM' + r.row, 'Loans', r.madhu, v, show(r.name.v) + ' · Madhu outstanding'))))))] : [empty('No loans on the Loans sheet.')];
   } else {
     const nw = s.netWorth || {};
     const changes = Object.values(E).filter(e => !sameV(e.value, e.base));
@@ -106,7 +146,7 @@ export function viewMonthly() {
       h('div', { class: 'btns', style: { marginTop: '8px' } }, h('button', { class: 'btn', onclick: () => { if (nw.aravind !== null && !inp.monthlyFormula.nwA) setE('mnwA', MT, row.cols.nwA, String(Math.round(nw.aravind)), (L.nwA || 'Aravind net worth') + ' · ' + F.monthLabel(row.month, true)); if (nw.madhu !== null && !inp.monthlyFormula.nwM) setE('mnwM', MT, row.cols.nwM, String(Math.round(nw.madhu)), (L.nwM || 'Madhu net worth') + ' · ' + F.monthLabel(row.month, true)); ctx.render(); } }, 'Use the tracker\'s figures')),
       h('div', { class: 'label-sm', style: { marginTop: '14px' } }, 'Changes to save'),
       changes.length ? h('ul', { class: 'list' }, changes.map(e => h('li', { class: 'li wrap' }, h('div', { class: 'body' }, h('div', { class: 'ttl' }, e.label), h('div', { class: 'sub' }, e.sheet + ' ' + e.ref)),
-        h('div', { class: 'end num' }, e.value === '' ? 'blank' : F.inr(e.value), h('div', { class: 'sub' }, 'was ' + (e.base === null || e.base === undefined || e.base === '' ? 'blank' : F.inr(e.base))))))) : empty('No changes yet.'),
+        h('div', { class: 'end num' }, e.value === '' ? 'blank' : e.text ? e.value : F.inr(e.value), h('div', { class: 'sub' }, 'was ' + (e.base === null || e.base === undefined || e.base === '' ? 'blank' : e.text ? String(e.base) : F.inr(e.base))))))) : empty('No changes yet.'),
       h('label', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, 'Mark balances as updated today'), h('div', { class: 'set-d' }, 'Sets "Last updated" on Other Assets and Loans so the Health Check is happy.')),
         h('input', { type: 'checkbox', id: 'markdates', checked: W.markDates !== false, onchange: e => { W.markDates = e.target.checked; } }))];
   }
@@ -139,9 +179,9 @@ export function viewMonthly() {
     h('section', { class: 'card' }, content),
     h('div', { class: 'sticky-save' }, step > 0 ? h('button', { class: 'btn', style: { flex: 1 }, onclick: prev }, 'Back') : null,
       !last ? h('button', { class: 'btn primary', style: { flex: 2 }, id: 'wiznext', onclick: next }, step >= 1 && step <= 3 ? 'Done, next' : 'Next') : h('button', { class: 'btn primary', style: { flex: 2 }, id: 'wizsave', onclick: submit }, 'Close the month')),
-    h('p', { class: 'hint', style: { marginTop: '10px' } }, 'Income: add each entry from Home or the + button. NPS is updated once a year in More › Cash & fixed income.'))] };
+    h('p', { class: 'hint', style: { marginTop: '10px' } }, 'Income: add each entry from Home or the + button. NPS is updated once a year and EPF set once a year, both in More › Cash & fixed income.'))] };
 }
-const sameV = (a, b) => { const ea = a === null || a === undefined || a === '', eb = b === null || b === undefined || b === ''; if (ea || eb) return ea && eb; return Number(a) === Number(b); };
+const sameV = (a, b) => { const ea = a === null || a === undefined || a === '', eb = b === null || b === undefined || b === ''; if (ea || eb) return ea && eb; if (typeof a === 'string' && Number.isNaN(Number(a))) return a === String(b); return Number(a) === Number(b); };
 function defaultMonth(inp) { const d = new Date(); const lm = new Date(d.getFullYear(), d.getMonth() - 1, 1); const key = lm.getFullYear() + '-' + String(lm.getMonth() + 1).padStart(2, '0') + '-01'; const r = inp.monthly.find(x => x.month === key); return (r || inp.monthly[inp.monthly.length - 1]).month; }
 
 // ---------------------------------------------------------------- Paste holdings (any broker) with column mapping

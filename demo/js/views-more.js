@@ -5,6 +5,7 @@ import { h, icon, seg, tag, bar, card, moreBtn, empty, statusKind, statusIcon, t
 import { personSeg, asOfLine, trendPoints } from './views-main.js';
 import * as C2 from './views-c2.js';
 import { slotsOf, slotLabel } from './views-kite.js';
+import { goalSheet, goalLinked } from './views-v12.js';
 
 const key = p => (p === 'Family' ? 'family' : p.toLowerCase());
 const sum = (a, f) => a.reduce((t, x) => t + (Number(f(x)) || 0), 0);
@@ -90,16 +91,21 @@ export function viewWealth() {
         h('div', { class: 'body' }, h('div', { class: 'ttl' }, r.name), h('div', { class: 'sub' }, 'Invested ' + F.inrShort(r.invested) + (r.n ? ' · ' + r.n + ' holding' + (r.n === 1 ? '' : 's') : ''))),
         h('div', { class: 'end' }, h('div', { class: 'num' }, F.inrShort(r.current)), h('div', { class: 'sub ' + retCls(r.pnl) }, r.invested ? F.signed(r.pnl) + ' · ' + F.pct(r.ret, 1) : '–')))),
       h('div', { class: 'kv', id: 'perftotal', style: { marginTop: '10px', borderTop: '1px solid var(--line)', paddingTop: '10px' } }, h('span', {}, 'Total invested'), h('span', {}, F.inr(tot.invested)), h('span', {}, 'Current value'), h('span', {}, F.inr(tot.current)), h('span', {}, 'Gain / loss'), h('span', { class: retCls(tot.pnl) }, tot.invested ? F.signed(tot.pnl, F.inr) + ' (' + F.pct(tot.ret, 1) + ')' : '–')),
-      h('p', { class: 'hint', style: { marginTop: '8px' } }, 'Tap a row to list its holdings. Kite, other platforms and international, as last synced.'));
-    // sub-groups inside the picked row (by asset type)
-    const inG = G ? all.filter(x => x.g === G) : all; const subs = [...new Set(inG.map(x => x.type || 'Other'))];
-    const sub = state.invSub || '';
+      h('p', { class: 'hint', style: { marginTop: '8px' } }, 'By class: Kite, other platforms and international, as last synced. Tap a row to narrow the lists below to it and open its holdings at the bottom.'));
+    const inG = G ? all.filter(x => x.g === G) : all;
+    const sub = state.invSub || ''; const shown = inG.filter(x => !sub || (x.type || 'Other') === sub);
+    const subs = [...new Set(inG.map(x => x.type || 'Other'))];
     const subChips = G && subs.length > 1 ? h('div', { class: 'chips', id: 'invsubs', style: { margin: '0 0 10px' } }, [['', 'All'], ...subs.map(x => [x, x])].map(([v, l]) => h('button', { class: 'chip' + (sub === v ? ' on' : ''), onclick: () => { state.invSub = v; ctx.render(); } }, l))) : null;
-    const shown = inG.filter(x => !sub || (x.type || 'Other') === sub);
-    body.push(invCard, subChips, holdingsCard(shown.filter(x => hold.includes(x)), shown.filter(x => !hold.includes(x)), G ? (INV_GROUPS.find(g => g[0] === G) || [])[1] : null), h('div', { class: 'spacer' }),
+    const stocks = all.filter(x => x.g === 'ind' || x.g === 'intl');
+    const funds = all.filter(x => x.g === 'mf' || x.g === 'gb');
+    const seeAll = (state.holdOpen || G) ? holdingsCard(shown.filter(x => hold.includes(x)), shown.filter(x => !hold.includes(x)), G ? (INV_GROUPS.find(g => g[0] === G) || [])[1] : null)
+      : h('button', { class: 'btn wide', id: 'seeallhold', onclick: () => { state.holdOpen = true; ctx.render(); } }, 'See all holdings (' + shown.length + ')');
+    body.push(invCard, h('div', { class: 'grid two' }, topTenCard(G === 'mf' || G === 'gb' ? [] : (G ? inG : stocks)), sectorCard(s, p), fundsCard(G === 'ind' || G === 'intl' ? [] : (G ? inG : funds))),
+      h('div', { class: 'spacer' }),
       h('div', { class: 'grid two' }, acctCard(s, hold, others),
         card('Concentration', p === 'Family' ? null : tag('Family', 'plain'), famNote, concentration(s)),
-        card('Stress test', p === 'Family' ? null : tag('Family', 'plain'), (s.stress || []).length ? h('ul', { class: 'list' }, s.stress.map(x => li(x.name, 'Portfolio after: ' + F.inrShort(x.after) + ' · Aravind ' + F.pct(x.fallA, 0) + ', Madhu ' + F.pct(x.fallM, 0), h('span', { class: 'loss' }, '−' + F.inrShort(Math.abs(x.loss || 0))), tag(x.status || '–', statusKind(x.status)), { wrap: true }))) : empty('Set the stress cases on the Settings sheet.'))));
+        card('Stress test', p === 'Family' ? null : tag('Family', 'plain'), (s.stress || []).length ? h('ul', { class: 'list' }, s.stress.map(x => li(x.name, 'Portfolio after: ' + F.inrShort(x.after) + ' · Aravind ' + F.pct(x.fallA, 0) + ', Madhu ' + F.pct(x.fallM, 0), h('span', { class: 'loss' }, '−' + F.inrShort(Math.abs(x.loss || 0))), tag(x.status || '–', statusKind(x.status)), { wrap: true }))) : empty('Set the stress cases on the Settings sheet.'))),
+      h('div', { class: 'spacer' }), (state.holdOpen || G) ? subChips : null, seeAll);
   }
 
   if (tab === 'assets') {
@@ -114,6 +120,32 @@ export function viewWealth() {
         loans.length ? h('div', { class: 'kv', style: { marginTop: '10px' } }, h('span', {}, 'Total EMI a month'), h('span', {}, F.inr(sum(loans, x => x.emi)))) : null)));
   }
   return { title: 'Wealth', body };
+}
+// ---- 0.12.0 Investments lists: top 10s (stocks), sectors, funds & bonds
+const TOPS = [['value', 'Largest'], ['best', 'Best %'], ['worst', 'Worst %'], ['gain', 'Top gains ₹'], ['loss', 'Top losses ₹']];
+function topTenCard(rows) {
+  const mode = state.topMode || 'value';
+  // one line per stock: the same symbol in several accounts adds up
+  const by = new Map(); for (const x of rows) { const g = by.get(x.name) || { name: x.name, current: 0, invested: 0 }; by.set(x.name, g); g.current += Number(x.current) || 0; g.invested += Number(x.invested) || 0; }
+  const list = [...by.values()].map(x => ({ ...x, pnl: x.invested ? x.current - x.invested : null, ret: x.invested ? (x.current - x.invested) / x.invested : null }));
+  const pick = { value: l => l.sort((a, b) => b.current - a.current), best: l => l.filter(x => x.ret !== null).sort((a, b) => b.ret - a.ret), worst: l => l.filter(x => x.ret !== null).sort((a, b) => a.ret - b.ret),
+    gain: l => l.filter(x => x.pnl > 0).sort((a, b) => b.pnl - a.pnl), loss: l => l.filter(x => x.pnl < 0).sort((a, b) => a.pnl - b.pnl) }[mode](list).slice(0, 10);
+  const end = x => mode === 'gain' || mode === 'loss' ? [h('span', { class: retCls(x.pnl) }, F.signed(x.pnl, F.inrShort)), h('div', { class: 'sub' }, x.ret !== null ? F.pct(x.ret, 1) : '')]
+    : mode === 'value' ? [F.inrShort(x.current), h('div', { class: 'sub ' + retCls(x.ret) }, x.ret !== null ? F.pct(x.ret, 1) : '')] : [h('span', { class: retCls(x.ret) }, F.pct(x.ret, 1)), h('div', { class: 'sub' }, F.inrShort(x.current))];
+  return h('section', { class: 'card', id: 'topten' }, h('div', { class: 'card-h' }, h('h2', {}, 'Stocks · top 10')),
+    h('div', { class: 'chips', id: 'topmode', style: { marginBottom: '8px' } }, TOPS.map(([v, l]) => h('button', { class: 'chip' + (mode === v ? ' on' : ''), 'aria-pressed': String(mode === v), onclick: () => { state.topMode = v; ctx.render(); } }, l))),
+    pick.length ? h('ol', { class: 'list numbered' }, pick.map((x, i) => h('li', { class: 'li' }, h('span', { class: 'lead num faint' }, String(i + 1)), h('div', { class: 'body' }, h('div', { class: 'ttl' }, x.name)), h('div', { class: 'end num' }, ...end(x))))) : empty(mode === 'gain' ? 'No stock is in profit.' : mode === 'loss' ? 'No stock is at a loss.' : 'No stocks yet.'),
+    h('p', { class: 'hint', style: { marginTop: '6px' } }, '% = return on buy cost. ₹ = gain or loss in rupees.'));
+}
+function sectorCard(s, p) {
+  const list = (s.sectors || []).filter(x => x.value);
+  return card('Sectors · direct stocks', p === 'Family' ? null : tag('Family', 'plain'), list.length ? h('table', { class: 'cmp', id: 'sectors' }, h('thead', {}, h('tr', {}, h('th', {}, 'Sector'), h('th', { class: 'num' }, 'Value'), h('th', { class: 'num' }, 'Share'))),
+    h('tbody', {}, list.sort((a, b) => b.value - a.value).map(x => h('tr', {}, h('td', {}, x.name, statusKind(x.status) !== 'ok' && x.status ? [' ', tag(x.status, statusKind(x.status))] : null), h('td', { class: 'num' }, F.inrShort(x.value)), h('td', { class: 'num' }, F.pct(x.pct, 1)))))) : empty('Appears once Kite holdings are pasted and sectors are set.'));
+}
+function fundsCard(rows) {
+  const list = [...rows].sort((a, b) => (b.current || 0) - (a.current || 0));
+  return card('Mutual funds, bonds & debt', null, list.length ? h('ul', { class: 'list', id: 'fundlist' }, list.slice(0, state.fundAll ? 500 : 10).map(x => li(x.name, [x.owner, x.type, x.platform || x.account].filter(Boolean).join(' · '), F.inrShort(x.current), h('span', { class: retCls(x.ret) }, x.ret !== null && x.ret !== undefined ? F.pct(x.ret, 1) : ''), { wrap: true }))) : empty('No funds or bonds yet.'),
+    list.length > 10 && !state.fundAll ? h('button', { class: 'btn wide', style: { marginTop: '8px' }, onclick: () => { state.fundAll = true; ctx.render(); } }, 'Show all ' + list.length) : null);
 }
 const ASSET_GROUPS = [['Bank, deposits and other assets', /^$/], ['Retirement (EPF, NPS, PPF)', /EPF|VPF|NPS|PPF|Sukanya/i], ['Gold & silver', /gold|silver/i], ['Vehicles', /vehicle/i], ['Money lent', /money lent/i, ['lent', 'Details']]];
 // performance by asset type, worked out from the holdings rows themselves (so the person filter is exact)
@@ -188,9 +220,10 @@ export function viewPlan() {
     s.targetPerMonth ? h('p', { class: 'hint', style: { marginTop: '8px' } }, 'Target ' + F.inr(s.targetPerMonth) + ' a month (excl. EPF). Actual is the average for the year so far.') : null);
   const emCard = card('Emergency fund', null, em.target ? [h('div', { class: 'kv' }, h('span', {}, 'Have'), h('span', {}, F.inr(em.have)), h('span', {}, 'Target (' + (em.months || '–') + ' months)'), h('span', {}, F.inr(em.target)),
     h('span', {}, 'Monthly outflows'), h('span', {}, F.inr(em.outflows)), h('span', {}, 'Months covered'), h('span', {}, em.monthsCovered !== null ? em.monthsCovered.toFixed(1) : '–')), bar(em.have / em.target, em.have >= em.target ? 'good' : 'warn')] : empty('Set the months to keep on the Settings sheet.'));
-  const goals = card('Goals', null, (s.goals || []).length ? h('ul', { class: 'list' }, s.goals.map(g => h('li', { class: 'li' }, C2.goalIcon(g.name, 20), h('div', { class: 'body' },
+  const goals = card('Goals', null, (s.goals || []).length ? h('ul', { class: 'list' }, s.goals.map(g => h('li', { class: 'li tap', 'data-goal': g.name, onclick: () => goalSheet(g) }, C2.goalIcon(g.name, 20), h('div', { class: 'body' },
     h('div', { class: 'row-between' }, h('span', { class: 'ttl' }, g.name), tag(g.status || '–', statusKind(g.status))),
-    h('div', { class: 'sub' }, [g.owner, 'by ' + (g.year || '–'), F.inrShort(g.saved) + ' of ' + F.inrShort(g.future)].join(' · ')), bar(g.progress, statusKind(g.status) === 'ok' ? 'good' : 'warn'),
+    (() => { const lk = goalLinked(g.name); const set = (g.saved || 0) + lk; const tgt = g.future || g.cost || 0; const pr = tgt ? Math.min(1, set / tgt) : g.progress;
+      return [h('div', { class: 'sub' }, [g.owner, 'by ' + (g.year || '–'), F.inrShort(set) + ' of ' + F.inrShort(tgt) + (tgt ? ' · ' + F.pct(set / tgt, 0) : ''), lk ? 'linked ' + F.inrShort(lk) : 'tap to link investments'].join(' · ')), bar(pr, statusKind(g.status) === 'ok' ? 'good' : 'warn')]; })(),
     g.neededPerMonth ? h('div', { class: 'sub', style: { marginTop: '4px' } }, 'Needs ' + F.inr(g.neededPerMonth) + ' a month · putting in ' + F.inr(g.monthly || 0)) : null, C2.forecastLine(g))))) : empty('Add goals on the Goals sheet.'));
   const hist = (s.monthly || []).filter(r => r.savingsRate !== null && r.income).slice(-12);
   const rate = card('Savings rate by month', null, hist.length >= 2 ? trendChart(hist.map(r => ({ x: F.monthLabel(r.month), y: r.savingsRate })), { fmt: v => F.pct(v, 0), label: 'Savings rate by month', height: 130 }) : empty('Appears after two months are logged.'));

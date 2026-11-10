@@ -380,3 +380,12 @@ table.cmp.inc td:first-child { white-space: nowrap; }
 .micbtn.on { background: var(--brand); color: #fff; border-color: var(--brand); animation: micpulse 1.2s ease-in-out infinite; }
 @keyframes micpulse { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--brand) 25%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .micbtn.on { animation: none; } }
+.pace-row { margin-top: 8px; }
+/* 0.12.0 person boxes: a name on every box and a faint tint (Aravind green-grey, Madhu lilac-grey) */
+.pbox { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 6px; border-radius: 10px; border: 1px solid var(--line); min-width: 0; }
+.pbox.pa { background: color-mix(in srgb, var(--surface) 92%, #2f8f6b); }
+.pbox.pm { background: color-mix(in srgb, var(--surface) 92%, #7b6bb3); }
+.pbox-l { font-size: .75rem; font-weight: 700; color: var(--muted); }
+.pbox .field { max-width: 150px !important; background: var(--surface); }
+.li.dim { opacity: .55; }
+ol.list { list-style: none; padding: 0; margin: 0; } .list.numbered .lead { min-width: 22px; text-align: right; }

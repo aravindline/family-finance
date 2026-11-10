@@ -202,6 +202,13 @@ export function extractSnapshot(wb) {
   out.v22 = !!(wb.tables && wb.tables.tblIncome);
   // v27: invested amount (buy cost) per bucket, saved by the Month-end update; this month minus last = invested this month
   out.v27 = !!(wb.tables && wb.tables.tblInvestedHist);
+  // v28: EPF ledger (opening balance, monthly contribution for a period, interest) and holdings linked to goals
+  out.v28 = !!(wb.tables && wb.tables.tblEPF && wb.tables.tblGoalLinks);
+  const isoM = v => (typeof v === 'number' ? iso(v) : str(v)).slice(0, 10);
+  out.epf = tbl(wb, 'tblEPF').filter(r => str(r['Entry ID']) && str(r['Status']) !== 'Deleted').map(r => ({ id: str(r['Entry ID']), person: str(r['Person']), kind: str(r['Kind']), amount: num(r['Amount (₹)']) || 0,
+    from: r['From month'] ? isoM(r['From month']) : '', to: r['To month'] ? isoM(r['To month']) : '', notes: str(r['Notes']), by: str(r['Entered by']) }));
+  out.goalLinks = tbl(wb, 'tblGoalLinks').filter(r => str(r['Link ID']) && str(r['Status']) !== 'Deleted').map(r => ({ id: str(r['Link ID']), goal: str(r['Goal']), cls: str(r['Class']), owner: str(r['Owner']), holding: str(r['Holding']), share: num(r['Share %']) || 1, value: num(r['Linked value (₹)']) }));
+  for (const g of out.goals) { const t = tbl(wb, 'tblGoals').find(r => r._row === g.row); g.linked = t ? num(t['Linked value (₹, auto)']) : null; }
   out.investedHist = tbl(wb, 'tblInvestedHist').filter(r => str(r['Month'])).map(r => ({ month: str(r['Month']).slice(0, 7), ind: num(r['Indian equity (₹)']) || 0, eqf: num(r['Equity funds (₹)']) || 0, debt: num(r['Debt & arbitrage funds (₹)']) || 0, intl: num(r['International (₹)']) || 0, at: str(r['Saved on']), by: str(r['Saved by']) }));
   out.income = tbl(wb, 'tblIncome').filter(r => r['Entry ID'] && num(r['Date'])).map(r => ({ id: str(r['Entry ID']), date: iso(r['Date']), month: iso(r['Date']).slice(0, 7), person: str(r['Person']), category: str(r['Category']), sub: str(r['Sub-category']), amount: num(r['Amount (₹)']) || 0, account: str(r['Received account']), notes: str(r['Notes']), by: str(r['Entered by']), at: str(r['Entered at']), status: str(r['Status']) || 'Active' }));
   { const ig = sheetGrid(wb, 'Income Entries'); out.incomeCats = []; out.incomeAccounts = [];
