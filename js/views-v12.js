@@ -1,6 +1,7 @@
 // 0.12.0 (tracker v28): EPF set once a year, and holdings linked to goals. Both write only to the app's own tables
 // (tblEPF, tblGoalLinks); the tracker works out the EPF balance, the monthly EPF figure and each goal's linked value.
-import { ctx, state } from './ctx.js';
+import { ctx } from './ctx.js';
+import * as W from './wealth.js';
 import * as F from './fmt.js';
 import { h, icon, toast, haptic, seg, tag, card, empty, sheet, bar, parseAmount } from './ui.js';
 import { uuid } from './crypto.js';
@@ -97,18 +98,21 @@ function epfSheet(e) {
 
 // ---------------------------------------------------------------- Goal links
 // What can be linked, grouped the way Aravind asked: class › account holder › holding (e.g. Equity › Aravind › ITC)
-export const LINK_CLASSES = ['Equity', 'Mutual funds', 'Bonds & debt', 'International', 'FD / RD', 'Savings account', 'Other'];
+export const LINK_CLASSES = ['Equity', 'Mutual funds', 'Bonds & debt', 'International', 'Gold & silver', 'FD / RD', 'Savings account', 'Other'];
 const isFund = t => /\bMF\b|fund|ETF/i.test(t || '');
-const isDebtT = t => /debt|bond|arbitrage|liquid|gilt|money market|overnight|SGB/i.test(t || '');
+const isDebtT = t => /debt|bond|arbitrage|liquid|gilt|money market|overnight/i.test(t || '');
+const isGoldT = (t, c) => c === 'Gold & silver' || /gold|silver|SGB/i.test(t || '');
 export function linkables() {
   const s = ctx.snap() || {}; const out = [];
   const add = (cls, owner, name, value, ret, extra) => { if (!name || !owner) return; const k = cls + '|' + owner + '|' + name; const x = out.find(o => o.key === k); if (x) { x.value += value || 0; return; } out.push({ key: k, cls, owner, name, value: value || 0, ret, ...extra }); };
-  for (const x of s.holdings || []) { const t = x.type || ''; const cls = isFund(t) && !/ETF/i.test(t) ? (isDebtT(t) ? 'Bonds & debt' : 'Mutual funds') : isDebtT(t) ? 'Bonds & debt' : 'Equity'; add(cls, x.owner, x.name, x.current); }
-  for (const x of s.otherHoldings || []) { if (x.linked) continue; const t = x.type || ''; add(isDebtT(t) ? 'Bonds & debt' : isFund(t) ? 'Mutual funds' : 'Other', x.owner, x.name, x.current); }
+  for (const x of s.holdings || []) { const t = x.type || ''; const cls = isGoldT(t, x.cls) ? 'Gold & silver' : isFund(t) && !/ETF/i.test(t) ? (isDebtT(t) ? 'Bonds & debt' : 'Mutual funds') : isDebtT(t) ? 'Bonds & debt' : 'Equity'; add(cls, x.owner, x.name, x.current); }
+  for (const x of s.otherHoldings || []) { if (x.linked) continue; const t = x.type || ''; add(isGoldT(t, x.cls) ? 'Gold & silver' : isDebtT(t) ? 'Bonds & debt' : isFund(t) ? 'Mutual funds' : 'Other', x.owner, x.name, x.current); }
   for (const x of s.intl || []) add('International', x.owner, x.name, x.current);
+  // tracker v29: each FD and RD from the register (the Other Assets rows that add them up are left out)
+  for (const d of s.deposits || []) if ((d.status || 'Active') === 'Active') add('FD / RD', d.whose, d.name, W.depositValue(d));
   for (const r of s.otherAssets || []) {
-    const t = (r.type || '') + ' ' + (r.name || '');
-    const cls = /savings|current account|bank/i.test(t) ? 'Savings account' : /deposit|\bFD\b|\bRD\b|post office|NSC|KVP|SCSS/i.test(t) ? 'FD / RD' : /EPF|VPF|NPS|PPF|Sukanya/i.test(t) ? 'Other' : /gold|silver|vehicle|money lent/i.test(t) ? null : 'Other';
+    const t = (r.type || '') + ' ' + (r.name || ''); if (s.v29 && /\(from the FD \/ RD list\)/i.test(r.name || '')) continue;
+    const cls = /savings|current account|bank|cash at home/i.test(t) ? 'Savings account' : /rental/i.test(t) ? 'Other' : /deposit|\bFD\b|\bRD\b|post office|NSC|KVP|SCSS/i.test(t) ? 'FD / RD' : /EPF|VPF|NPS|PPF|Sukanya/i.test(t) ? 'Other' : /gold|silver/i.test(t) ? 'Gold & silver' : /vehicle|money lent/i.test(t) ? null : 'Other';
     if (!cls) continue;
     if (r.aravind) add(cls, 'Aravind', r.name, r.aravind); if (r.madhu) add(cls, 'Madhu', r.name, r.madhu);
   }
@@ -136,8 +140,8 @@ export function goalSheet(g) {
       h('p', { class: 'hint' }, F.inr(set) + ' of ' + F.inr(target) + (g.future && g.cost ? ' (today\'s ' + F.inr(g.cost) + ' grown to ' + (g.year || 'the target year') + ')' : ''))) : h('p', { class: 'hint' }, 'Add the cost and year in More › FIRE & goals to see how much is covered.'),
     h('div', { class: 'label-sm' }, 'Linked investments'),
     mine.length ? h('ul', { class: 'list', id: 'goallinks' }, mine.map(l => h('li', { class: 'li wrap' },
-      h('div', { class: 'body' }, h('div', { class: 'ttl' }, l.holding, l.pending ? [' ', tag('Waiting to sync', 'prov')] : null), h('div', { class: 'sub' }, l.cls + ' · ' + l.owner + ((l.share || 1) < 1 ? ' · ' + F.pct(l.share, 0) + ' of it' : ''))),
-      h('div', { class: 'end num' }, F.inr(linkValue(l, items)), h('div', {}, h('button', { class: 'link', onclick: () => { close(); splitSheet(g, l); } }, 'Share'), ' · ', h('button', { class: 'link', 'aria-label': 'Remove ' + l.holding, onclick: async () => { await unlink(l); close(); goalSheet(g); } }, 'Remove')))))) : h('p', { class: 'hint' }, 'Nothing linked yet.'),
+      h('div', { class: 'body' }, h('div', { class: 'ttl' }, l.holding, l.pending ? [' ', tag('Waiting to sync', 'prov')] : null), h('div', { class: 'sub' }, l.cls + ' · ' + l.owner + ' · ' + F.pct(l.share || 1, 0) + ' of it')),
+      h('div', { class: 'end num' }, F.inr(linkValue(l, items)), h('div', { class: 'btns tight', style: { marginTop: '4px' } }, h('button', { class: 'btn small', 'data-share': l.holding, onclick: () => { close(); splitSheet(g, l); } }, 'Change %'), h('button', { class: 'btn small', 'aria-label': 'Remove ' + l.holding, onclick: async () => { await unlink(l); close(); goalSheet(g); } }, 'Remove')))))) : h('p', { class: 'hint' }, 'Nothing linked yet.'),
     needV28(s) ? h('p', { class: 'warn-text' }, 'Linking needs tracker v28. Move to it first: More › App › Settings › New tracker version.')
       : h('button', { class: 'btn primary', id: 'goallinkadd', onclick: () => { close(); linkPicker(g); } }, icon('plus', 16), mine.length ? 'Link one more' : 'Link an investment'));
   const sh = sheet(g.name, body); function close() { sh(); }
@@ -165,10 +169,7 @@ function linkPicker(g, st = {}) {
       return h('li', { class: 'li tap' + (isIn || left <= 0 ? ' dim' : ''), 'data-holding': i.name, onclick: async () => {
         if (isIn) return toast('Already linked to this goal');
         if (left <= 0) return toast('All of it is already linked to other goals. Change its share there first.', 'bad');
-        const id = 'GL-' + uuid().slice(0, 8);
-        await addRow('tblGoalLinks', 'Link ID', { 'Link ID': id, Goal: g.name, Class: i.cls, Owner: i.owner, Holding: i.name, 'Share %': left < 1 ? Math.round(left * 100) / 100 : 1, 'Added by': ctx.who() || '', 'Added at': stamp(), Status: 'Active' },
-          'goal link', g.name + ' ← ' + i.name + ' (' + i.owner + ')');
-        sh(); toast(i.name + ' linked to ' + g.name + (left < 1 ? ' (' + F.pct(left, 0) + ', the part not used by other goals)' : '')); goalSheet(g);
+        sh(); shareAsk(g, i, left);
       } }, h('div', { class: 'body' }, h('div', { class: 'ttl' }, i.name), h('div', { class: 'sub' }, isIn ? 'Already linked here' : used ? F.pct(left, 0) + ' free, the rest is linked to other goals' : '')), h('div', { class: 'end num' }, F.inr(i.value)));
     });
   }
@@ -176,7 +177,22 @@ function linkPicker(g, st = {}) {
   const sh = sheet(title, h('div', { class: 'stack', id: 'linkpicker' }, list.length ? h('ul', { class: 'list' }, list) : empty('Nothing here yet. Sync after pasting holdings or adding balances.'),
     back ? h('button', { class: 'btn', onclick: () => { sh(); linkPicker(g, back); } }, 'Back') : null));
 }
-// optional split: what share of this holding counts for this goal
+// when linking: what share of the holding counts for this goal (default = the part other goals do not use)
+function shareAsk(g, i, left) {
+  const inp = h('input', { class: 'field num', id: 'linkshare', inputmode: 'decimal', value: String(Math.round(left * 100)), 'aria-label': 'Share in percent', style: { maxWidth: '120px' } });
+  const sh = sheet('Link ' + i.name, h('div', { class: 'stack', id: 'linkshareform' },
+    h('p', { class: 'hint' }, i.owner + ' · ' + i.cls + ' · ' + F.inr(i.value) + (left < 1 ? '. ' + F.pct(1 - left, 0) + ' of it is already linked to other goals.' : '')),
+    h('label', { class: 'row-between' }, h('span', {}, 'Share for ' + g.name + ' (%)'), inp),
+    h('button', { class: 'btn primary', id: 'linksave', onclick: async () => {
+      const p = Number(String(inp.value).replace('%', '')); if (!(p > 0 && p <= Math.round(left * 100) + 0.01)) return toast('Type a share from 1 to ' + Math.round(left * 100), 'bad');
+      const id = 'GL-' + uuid().slice(0, 8);
+      await addRow('tblGoalLinks', 'Link ID', { 'Link ID': id, Goal: g.name, Class: i.cls, Owner: i.owner, Holding: i.name, 'Share %': Math.round(p) / 100, 'Added by': ctx.who() || '', 'Added at': stamp(), Status: 'Active' },
+        'goal link', g.name + ' ← ' + i.name + ' (' + i.owner + ')');
+      sh(); toast(i.name + ' linked to ' + g.name + ' (' + Math.round(p) + '%)'); goalSheet(g);
+    } }, 'Link')));
+  setTimeout(() => inp.select(), 60);
+}
+// change the share later: what share of this holding counts for this goal
 function splitSheet(g, l) {
   const inp = h('input', { class: 'field', id: 'goalshare', inputmode: 'decimal', value: String(Math.round((l.share || 1) * 100)), 'aria-label': 'Share in percent', style: { maxWidth: '120px' } });
   const sh = sheet('Share of ' + l.holding, h('div', { class: 'stack' },

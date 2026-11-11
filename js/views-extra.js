@@ -2,7 +2,7 @@
 // Templates live encrypted on this device (and in its backup); each belongs to the person using the device.
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
-import { h, icon, toast, card, empty, tag, sheet, catIcon, parseAmount, hasLongDigits, DIGITS_MSG } from './ui.js';
+import { h, icon, toast, card, empty, tag, sheet, parseAmount, hasLongDigits, DIGITS_MSG } from './ui.js';
 import { uuid } from './crypto.js';
 
 const pad = n => String(n).padStart(2, '0');

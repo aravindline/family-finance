@@ -167,13 +167,13 @@ export async function syncOnce({ transport, ops, who, device, maxTries = 3, last
     const mv = movedTo(wb);
     if (mv) { const e = new Error('This tracker was moved to a newer tracker' + (mv['Updated by'] && String(mv['Updated by']).includes(' · ') ? ' (' + String(mv['Updated by']).split(' · ').slice(1).join(' · ') + ')' : '') + ' on ' + String(mv['Updated at'] || '').slice(0, 10) + '. Switch this phone: More › App › Settings › Advanced › New tracker version.'); e.moved = true; throw e; }
     const res = ops.length ? applyOutbox(wb, ops, who, device) : { applied: [], conflicts: [], logCount: 0 };
-    let finalWb = wb, newEtag = etag;
-    if (res.logCount) {
+    let newEtag = etag;
+    if (res.logCount) { // nothing changed (or every change was already in the file): nothing is uploaded
       const out = await wb.save();
       try { newEtag = (await transport.upload(out, etag)).etag; }
       catch (e) { if (e instanceof PreconditionFailed && attempt < maxTries) continue; throw e; } // someone saved meanwhile: start again on the new file
-      finalWb = await Workbook.open(out);
     }
+    const finalWb = wb; // the workbook in memory already holds what was uploaded, so it is read straight away (no second unzip)
     const entries = finalWb.tableRows(DAILY).filter(r => r['Entry ID'] || r.Date).map(rowToEntry);
     const snap = extractSnapshot(finalWb);
     const appWrite = lastAppWrite(finalWb);

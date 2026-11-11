@@ -49,20 +49,6 @@ export function handoverItem() {
       h('button', { class: 'btn small', id: 'hoopen', onclick: () => { state.hoPerson = me; ctx.go('handover'); } }, 'Update'),
       h('button', { class: 'btn primary small', id: 'hookay', onclick: () => looksRight(me) }, 'Looks right')] };
 }
-export function handoverNudge() {
-  const me = ctx.who(); if (!me || !hasHandover()) return null;
-  const last = lastReview(me); if (daysSince(last) < DAYS) return null;
-  const snooze = (ctx.settings().handoverSnooze || '');
-  if (snooze && snooze > todayISO()) return null;
-  return h('section', { class: 'card', id: 'honudge' },
-    h('div', { class: 'card-h' }, h('h2', {}, 'Is your handover pack still right?')),
-    h('p', { class: 'hint' }, last ? 'Last checked ' + F.date(last) + '. Accounts, contacts, digital access and instructions for ' + (me === 'Aravind' ? 'Madhu' : 'Aravind') + '.' : 'Not checked yet. It tells ' + (me === 'Aravind' ? 'Madhu' : 'Aravind') + ' what to do if you are not around.'),
-    h('div', { class: 'btns' },
-      h('button', { class: 'btn primary', id: 'hookay', onclick: () => looksRight(me) }, 'Looks right'),
-      h('button', { class: 'btn', id: 'hoopen', onclick: () => { state.hoPerson = me; ctx.go('handover'); } }, 'Update'),
-      h('button', { class: 'btn ghost', id: 'holater', onclick: async () => { const d = new Date(); d.setDate(d.getDate() + 7); await ctx.saveSettings({ handoverSnooze: d.toISOString().slice(0, 10) }); ctx.render(); } }, 'Later')));
-}
-
 export function viewHandover() {
   const me = ctx.who() || 'Aravind';
   if (!state.hoPerson) state.hoPerson = me;

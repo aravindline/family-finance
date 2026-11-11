@@ -27,6 +27,53 @@ export function parseMobile(text) {
   return { holdings: out, bad };
 }
 
+// One account copied as a table (Aravind, 11 Nov 2026):
+//  Kite web › Holdings: header "Instrument | Qty. | Avg. cost | LTP | Invested | Cur. val | P&L | Net chg. | Day chg.", one line per holding
+//  Console › Portfolio › Holdings: header "Symbol | Qty. | Buy avg. | Buy value | LTP | Present value | P&L | P&L chg.", then per holding a
+//  "SYMBOL n" line and a line of values that starts with the quantity. The quantity is always taken from the Qty. column.
+// Values may be split by tabs or spaces. Symbols may hold "&" or "-".
+const NUMTOK = x => num(String(x).replace(/%$/, '')) !== null;
+const COLS = { qty: /^qty/i, avg: /avg/i, ltp: /^ltp/i, invested: /^(invested|buy value)/i, current: /^(cur\.? ?val|present value)/i };
+function headerMap(line) {
+  const cells = line.split(/\t|\s{2,}|\s*\|\s*/).map(x => x.trim()).filter(Boolean);
+  if (!cells.some(c => COLS.qty.test(c)) || !cells.some(c => COLS.avg.test(c))) return null;
+  const at = {}; cells.forEach((c, i) => { for (const [k, re] of Object.entries(COLS)) if (at[k] === undefined && re.test(c)) at[k] = i; });
+  return { at, first: cells[0] };
+}
+export function parseTable(text) {
+  const lines = String(text || '').split(/\r?\n/).map(l => l.replace(/\s+$/, '')).filter(l => l.trim());
+  const out = []; const bad = []; let hdr = null; let prevName = null;
+  for (const raw of lines) {
+    const l = raw.trim();
+    const hm = headerMap(l); if (hm) { hdr = hm; prevName = null; continue; }
+    const toks = l.split(/\t|\s+/).filter(Boolean);
+    const firstNum = toks.findIndex(NUMTOK);
+    if (firstNum < 0 || toks.slice(firstNum).filter(NUMTOK).length < 5) { prevName = l; continue; }
+    let sym, vals;
+    if (firstNum === 0) { // Console: values line, the symbol is on the line above ("SYMBOL n": the number there is ignored)
+      if (!prevName) { bad.push(l); continue; }
+      sym = prevName.replace(/\s+[\d,.]+$/, '').trim(); vals = toks.map(x => num(String(x).replace(/%$/, '')));
+      const at = hdr && !/^instrument/i.test(hdr.first) ? Object.fromEntries(Object.entries(hdr.at).map(([k, i]) => [k, i - 1])) : { qty: 0, avg: 1, invested: 2, ltp: 3, current: 4 };
+      const x = mk(sym, vals, at); x ? out.push(x) : bad.push(l);
+    } else { // Kite web: one line per holding, the symbol first
+      const parts = l.includes('\t') ? l.split('\t').map(x => x.trim()) : null;
+      sym = parts ? parts[0] : toks.slice(0, firstNum).join(' ');
+      vals = parts ? parts.slice(1).map(x => num(String(x).replace(/%$/, ''))) : toks.slice(firstNum).map(x => num(String(x).replace(/%$/, '')));
+      const at = hdr && /^instrument/i.test(hdr.first) ? Object.fromEntries(Object.entries(hdr.at).map(([k, i]) => [k, i - 1])) : { qty: 0, avg: 1, ltp: 2, invested: 3, current: 4 };
+      const x = mk(sym, vals, at); x ? out.push(x) : bad.push(l);
+    }
+    prevName = null;
+  }
+  return { holdings: out, bad };
+}
+function mk(sym, v, at) {
+  const qty = v[at.qty], avg = v[at.avg], ltp = v[at.ltp]; if (!sym || !(qty > 0) || avg === null || avg === undefined || ltp === null || ltp === undefined) return null;
+  const inv = v[at.invested] ?? qty * avg;
+  return { sym: sym.replace(/\s*[·•*]\s*$/, ''), qty, avg, invested: inv, ltp, check: Math.abs(inv - qty * avg) <= Math.max(1, inv * 0.005) };
+}
+// One account, whatever it was copied from: the Kite phone app, Kite web or Console
+export function parseOneAccount(text) { const m = parseMobile(text); if (m.holdings.length) return m; const t = parseTable(text); return t.holdings.length ? t : { holdings: [], bad: m.bad.concat(t.bad) }; }
+
 // Kite web holdings table, copied as it is: 3 lines per holding (works with tabs or several spaces between values)
 export function parseWeb(text, codes) {
   const lines = String(text || '').split(/\r?\n/).map(l => l.replace(/\s+$/, '')).filter(l => l.trim());

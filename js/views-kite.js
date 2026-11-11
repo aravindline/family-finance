@@ -2,8 +2,8 @@
 // holdings (name, quantity, average price, last price) are queued for the tracker. The pasted text itself is not kept.
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
-import { h, icon, toast, seg, tag, card, empty } from './ui.js';
-import { parseMobile, parseWeb, replaces } from './kite.js';
+import { h, toast, seg, tag, card, empty } from './ui.js';
+import { parseOneAccount, parseWeb, replaces } from './kite.js';
 import { isoToSerial, serialToISO } from './xlsx.js';
 
 const isoToday = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
@@ -27,17 +27,17 @@ export function viewKite() {
     h('p', { class: 'hint', style: { marginTop: '8px' } }, 'Prices in the tracker are as of ' + (typeof asOf === 'number' ? F.date(serialToISO(asOf)) : 'never') + '. Each paste is saved against its own Kite account: one account from the Kite app, or all accounts at once from Kite web (it shows the account codes). Accounts you do not paste keep last time\'s holdings.'),
     h('div', { class: 'btns', style: { marginTop: '8px' } }, h('button', { class: 'btn', id: 'kiteeditaccts', onclick: () => { state.formId = 'kiteaccts'; ctx.go('form'); } }, 'Edit accounts and names')));
 
-  const modeSeg = seg([['app', 'Kite app: one account'], ['web', 'Kite web: all accounts']], KD.mode, v => { KD.mode = v; KD.preview = null; ctx.render(); }, 'Copied from');
+  const modeSeg = seg([['app', 'One account'], ['web', 'All accounts (Kite web family)']], KD.mode, v => { KD.mode = v; KD.preview = null; ctx.render(); }, 'Copied from');
   const slotBox = KD.mode === 'app' ? h('div', { class: 'fblock' }, h('span', { class: 'flabel' }, 'Which account did you copy?'),
     h('div', { class: 'chips', id: 'kiteslot', role: 'radiogroup', 'aria-label': 'Account' }, slots.map(x => h('button', { type: 'button', role: 'radio', 'aria-checked': String(KD.slot === x.code), class: 'chip' + (KD.slot === x.code ? ' on' : ''), onclick: () => { KD.slot = x.code; KD.preview = null; ctx.render(); } }, slotLabel(x))))) : null;
-  const ta = h('textarea', { class: 'field', id: 'kitetext', rows: 6, 'aria-label': 'Pasted holdings', placeholder: KD.mode === 'app' ? 'In the Kite app: Portfolio › Holdings, pick the account, select all, copy, paste here.' : 'In Kite web: Holdings, select the whole table, copy, paste here.', style: { minHeight: '120px', padding: '10px 12px' }, oninput: e => { KD.text = e.target.value; } });
+  const ta = h('textarea', { class: 'field', id: 'kitetext', rows: 6, 'aria-label': 'Pasted holdings', placeholder: KD.mode === 'app' ? 'Kite app: Portfolio › Holdings, select all, copy. Or Kite web › Holdings, or Console › Portfolio › Holdings: select the table with its header, copy. Paste here.' : 'In Kite web: Holdings, select the whole table, copy, paste here.', style: { minHeight: '120px', padding: '10px 12px' }, oninput: e => { KD.text = e.target.value; } });
   ta.value = KD.text;
   const date = h('input', { class: 'field', type: 'date', id: 'kitedate', value: KD.date, max: isoToday(), 'aria-label': 'Prices as of', style: { width: 'auto' }, onchange: e => { KD.date = e.target.value; } });
   const read = () => {
     if (KD.mode === 'app' && !KD.slot) return toast('Pick the account you copied first', 'bad');
     const codes = slots.map(x => x.code);
-    const r = KD.mode === 'app' ? parseMobile(KD.text) : parseWeb(KD.text, codes);
-    if (!r.holdings.length) return toast(KD.mode === 'app' ? 'No holdings found. Copy the Holdings screen including the "Qty." lines.' : 'No holdings found. Copy the whole holdings table from Kite web.', 'bad');
+    const r = KD.mode === 'app' ? parseOneAccount(KD.text) : parseWeb(KD.text, codes);
+    if (!r.holdings.length) return toast(KD.mode === 'app' ? 'No holdings found. From the Kite app copy the Holdings screen with its "Qty." lines; from Kite web or Console copy the holdings table with its header row.' : 'No holdings found. Copy the whole holdings table from Kite web.', 'bad');
     KD.preview = r; ctx.render();
   };
   const body = [h('h2', { class: 'formhead' }, 'Kite holdings'), accList,

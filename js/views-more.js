@@ -6,6 +6,8 @@ import { personSeg, asOfLine, trendPoints } from './views-main.js';
 import * as C2 from './views-c2.js';
 import { slotsOf, slotLabel } from './views-kite.js';
 import { goalSheet, goalLinked } from './views-v12.js';
+import { EMERGENCY } from './wealth.js';
+import * as V13 from './views-v13.js';
 
 const key = p => (p === 'Family' ? 'family' : p.toLowerCase());
 const sum = (a, f) => a.reduce((t, x) => t + (Number(f(x)) || 0), 0);
@@ -59,13 +61,13 @@ export function viewWealth() {
           h('div', { class: 'end' }, F.pct(c.value / total, 0), h('div', { class: 'sub' }, F.inrShort(c.value))))))) : empty('No assets recorded yet.'),
       s.retirementOutside ? h('p', { class: 'hint', style: { marginTop: '8px' } }, 'EPF / NPS / PPF outside the investable split: ' + F.inrShort(s.retirementOutside)) : null);
     body.push(nwCard, checksRow, h('div', { class: 'grid two' },
-      card('Net worth by month', null, pts.length >= 2 ? trendChart(pts, { label: 'Net worth by month' }) : empty('Month-end net worth appears after two months are closed in the Month-end update.'),
+      (s.v29 && V13.nwTrendCard(s, p, C2.notesBlock('Net worth', (s.monthly || []).slice(-12).map(r => r.month.slice(0, 7))))) || card('Net worth by month', null, pts.length >= 2 ? trendChart(pts, { label: 'Net worth by month' }) : empty('Month-end net worth appears after two months are closed in the Month-end update.'),
         h('div', { class: 'spacer' }), C2.notesBlock('Net worth', (s.monthly || []).slice(-12).map(r => r.month.slice(0, 7)))),
-      C2.whatMovedCard(p),
+      s.v29 ? null : C2.whatMovedCard(p),
       card('Summary', null, h('div', { class: 'kv' }, h('span', {}, 'Total assets'), h('span', {}, F.inr(A[k])), h('span', {}, 'Loans'), h('span', { class: 'loss' }, F.inr(L[k])),
         h('span', {}, 'Net worth'), h('span', {}, F.inr(N[k]))),
         p === 'Family' && N.aravind !== undefined ? [h('div', { class: 'spacer' }), h('div', { class: 'kv' }, h('span', {}, 'Aravind'), h('span', {}, F.inr(N.aravind) + ' · ' + F.pct(N.family ? N.aravind / N.family : 0, 0)), h('span', {}, 'Madhu'), h('span', {}, F.inr(N.madhu) + ' · ' + F.pct(N.family ? N.madhu / N.family : 0, 0)))] : null),
-      mix,
+      s.v29 ? V13.mixCard(s, p) : mix,
       p === 'Family' && (s.allocation || []).some(a => a.target) ? card('Allocation vs your target', null, h('ul', { class: 'list' }, s.allocation.filter(a => a.target || a.value).map(a =>
         li(a.name, 'Actual ' + F.pct(a.pct, 1) + ' · target ' + F.pct(a.target, 0), a.status ? tag(a.status, statusKind(a.status)) : null, a.move ? (a.move > 0 ? 'Below target by ' : 'Above target by ') + F.inrShort(Math.abs(a.move)) : null, { wrap: true }))),
         h('p', { class: 'hint', style: { marginTop: '8px' } }, 'Figures from your Allocation & Risk sheet. This is not advice to buy or sell.')) : null));
@@ -211,7 +213,9 @@ export function viewPlan() {
         f.yearsToGo !== null && f.yearsToGo !== undefined ? [h('span', {}, 'Time to go'), h('span', {}, F.years(f.yearsToGo))] : null,
         f.progress !== null && f.progress !== undefined ? [h('span', {}, 'Progress today'), h('span', {}, F.pct(f.progress, 1))] : null,
         f.monthlyNeeded ? [h('span', {}, f.labels && f.labels.I ? f.labels.I : 'Monthly investing needed'), h('span', {}, F.inrShort(f.monthlyNeeded))] : null,
-        f.lastsUntil ? [h('span', {}, 'Money lasts until age'), h('span', {}, String(f.lastsUntil))] : null),
+        f.lastsUntil ? [h('span', {}, 'Money lasts until age'), h('span', {}, String(f.lastsUntil))] : null,
+        s.coast && typeof s.coast.year === 'number' ? [h('span', {}, 'Coast FIRE year'), h('span', { id: 'coastyear' }, s.coast.year + (typeof s.coast.age === 'number' ? ' · age ' + s.coast.age : ''))] : null),
+      s.coast ? h('p', { class: 'hint' }, 'Coast FIRE: the year from which, at today\'s pace, you could stop adding money and the corpus would still grow to what retirement needs.') : null,
       (f.notes || []).length ? h('p', { class: 'hint', style: { marginTop: '10px' } }, F.maskText(f.notes.join(' · '))) : null]
       : empty('Fill the Settings sheet in the tracker to see the FIRE plan.'));
   const bk = (s.buckets || []).filter(b => b.target || b.actual);
@@ -219,7 +223,9 @@ export function viewPlan() {
     b.target ? bar(b.actual / b.target, b.actual >= b.target ? 'good' : 'warn') : null))) : empty('Set your monthly target on the Settings sheet.'),
     s.targetPerMonth ? h('p', { class: 'hint', style: { marginTop: '8px' } }, 'Target ' + F.inr(s.targetPerMonth) + ' a month (excl. EPF). Actual is the average for the year so far.') : null);
   const emCard = card('Emergency fund', null, em.target ? [h('div', { class: 'kv' }, h('span', {}, 'Have'), h('span', {}, F.inr(em.have)), h('span', {}, 'Target (' + (em.months || '–') + ' months)'), h('span', {}, F.inr(em.target)),
-    h('span', {}, 'Monthly outflows'), h('span', {}, F.inr(em.outflows)), h('span', {}, 'Months covered'), h('span', {}, em.monthsCovered !== null ? em.monthsCovered.toFixed(1) : '–')), bar(em.have / em.target, em.have >= em.target ? 'good' : 'warn')] : empty('Set the months to keep on the Settings sheet.'));
+    h('span', {}, 'Monthly outflows'), h('span', {}, F.inr(em.outflows)), h('span', {}, 'Months covered'), h('span', {}, em.monthsCovered !== null ? em.monthsCovered.toFixed(1) : '–')), bar(em.have / em.target, em.have >= em.target ? 'good' : 'warn')] : empty('Set the months to keep on the Settings sheet.'),
+    (() => { const lk = goalLinked(EMERGENCY); return [h('p', { class: 'hint', style: { marginTop: '8px' } }, lk ? 'Linked FDs and funds: ' + F.inr(lk) + '. These are left out of the asset mix.' : 'Link the FDs and arbitrage funds you keep for emergencies. Without links, all cash and deposits count.'),
+      h('button', { class: 'btn', id: 'emlink', onclick: () => goalSheet({ name: EMERGENCY, cost: em.target || 0 }) }, icon('plus', 16), lk ? 'Linked FDs and funds' : 'Link FDs and funds')]; })());
   const goals = card('Goals', null, (s.goals || []).length ? h('ul', { class: 'list' }, s.goals.map(g => h('li', { class: 'li tap', 'data-goal': g.name, onclick: () => goalSheet(g) }, C2.goalIcon(g.name, 20), h('div', { class: 'body' },
     h('div', { class: 'row-between' }, h('span', { class: 'ttl' }, g.name), tag(g.status || '–', statusKind(g.status))),
     (() => { const lk = goalLinked(g.name); const set = (g.saved || 0) + lk; const tgt = g.future || g.cost || 0; const pr = tgt ? Math.min(1, set / tgt) : g.progress;
