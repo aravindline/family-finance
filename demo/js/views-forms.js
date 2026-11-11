@@ -56,17 +56,29 @@ function show(t, v) {
 }
 const same = (a, b) => (blank(a) ? blank(b) : typeof a === 'number' || typeof b === 'number' ? Math.abs(Number(a) - Number(b)) < 1e-9 : String(a) === String(b ?? ''));
 
+// a list's choices: the tracker's dropdown plus anything already typed in that column ("+ Add new" entries)
+const usedOpts = (d, c) => { const o = ((d.opts || {})[c] || []).slice(); for (const r of d.rows || []) { const v = r.cells[c] && r.cells[c].v; if (!blank(v) && !o.includes(String(v))) o.push(String(v)); } return o; };
 // ---- one input for one field
 function input(fl, id, text, opts, onChange) {
   const t = fl.t;
   if (t === 'choice') {
+    // every preset list can take a new entry ("+ Add new"): typed once, it is saved like any other choice and offered again
     const list = (opts || []).slice(); if (text && !list.includes(text)) list.push(text);
-    if (list.length && list.length <= 5) {
-      const box = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': fl.l, id });
-      const draw = cur => box.replaceChildren(...list.map(o => h('button', { type: 'button', role: 'radio', 'aria-checked': String(o === cur), class: 'chip' + (o === cur ? ' on' : ''), onclick: () => { const nv = o === cur ? '' : o; onChange(nv); draw(nv); } }, o)));
-      draw(text); return box;
-    }
-    return h('select', { class: 'field', id, 'aria-label': fl.l, onchange: e => onChange(e.target.value) }, h('option', { value: '' }, '–'), ...list.map(o => h('option', { value: o, selected: o === text }, o)));
+    const wrap = h('div', { class: 'choicewrap' });
+    const addNew = () => { const inp = h('input', { class: 'field', id: id + '-new', maxlength: 60, 'aria-label': 'New ' + fl.l, placeholder: 'Type the new ' + fl.l.toLowerCase(),
+      oninput: e => onChange(e.target.value.trim()), onchange: e => onChange(e.target.value.trim()) });
+      wrap.replaceChildren(inp, h('button', { type: 'button', class: 'link', onclick: () => { onChange(text || ''); draw(text); } }, 'Back to the list')); setTimeout(() => inp.focus(), 30); };
+    const draw = cur => {
+      if (list.length && list.length <= 5) {
+        const box = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': fl.l, id });
+        const paint = c => box.replaceChildren(...list.map(o => h('button', { type: 'button', role: 'radio', 'aria-checked': String(o === c), class: 'chip' + (o === c ? ' on' : ''), onclick: () => { const nv = o === c ? '' : o; onChange(nv); paint(nv); } }, o)),
+          h('button', { type: 'button', class: 'chip add', id: id + '-add', onclick: addNew }, '+ Add new'));
+        paint(cur); wrap.replaceChildren(box); return;
+      }
+      wrap.replaceChildren(h('select', { class: 'field', id, 'aria-label': fl.l, onchange: e => { if (e.target.value === '__new') return addNew(); onChange(e.target.value); } },
+        h('option', { value: '' }, '–'), ...list.map(o => h('option', { value: o, selected: o === cur }, o)), h('option', { value: '__new' }, '+ Add new…')));
+    };
+    draw(text); return wrap;
   }
   const a = { class: 'field' + (['money', 'num', 'pct', 'year'].includes(t) ? ' num' : ''), id, 'aria-label': fl.l, value: text, oninput: e => onChange(e.target.value), onchange: e => onChange(e.target.value) };
   if (t === 'money' || t === 'num') Object.assign(a, { inputmode: 'decimal', placeholder: '0' });
@@ -110,7 +122,7 @@ function status(f) {
 // ---------------------------------------------------------------- one form
 export function viewForm() {
   const f = byId(state.formId); const d = f && data(f.id);
-  if (!f || !d) return { title: 'Update tracker', back: backOf(f), body: [card(null, null, empty('This part is not in your tracker yet. Sync, or check you are on tracker ' + (f && f.owner ? 'v25' : 'v22') + ' or later.'))] };
+  if (!f || !d) return { title: 'Update tracker', back: backOf(f), body: [card(null, null, empty(f ? 'This screen has nothing to show yet. Pull down to sync, then open it again.' : 'Pick what to update from the list.'))] };
   const ro = viewOnly(f);
   if (f.cells) return cellsForm(f, d);
   if (f.settings) return settingsGroups(f, d);
@@ -127,7 +139,7 @@ export function viewForm() {
   const add = f.noAdd || ro ? null : h('div', { class: 'btns', style: { margin: '0 0 12px' } }, h('button', { class: 'btn primary', id: 'formadd', onclick: () => {
     if (!free.length) return toast('All ' + d.rows.length + ' rows are used. Clear one you no longer need first.', 'bad');
     state.formRow = free[0].r; state.formNew = true; ctx.go('formedit');
-  } }, icon('plus', 16), 'Add'));
+  } }, icon('plus', 16), f.addLabel || 'Add'));
   return { title: shortTitle(f), back: backOf(f), body: [
     h('h2', { class: 'formhead' }, f.title + (f.owner ? ' · ' + f.owner : '')),
     h('p', { class: 'hint', style: { margin: '0 4px 12px' } }, f.sub + (d.stamp ? '. ' + status(f).text.split(' · ').pop().replace(/^./, c => c.toUpperCase()) + '.' : '.') + (ro ? ' View only: ' + f.owner + ' edits this.' : '')),
@@ -157,7 +169,7 @@ export function viewFormEdit() {
     const c = r.cells[fl.c] || {}; const id = 'f-' + fl.c;
     if (!c.in) { if (!blank(cur(fl.c)) && fl.c !== f.label.c) els.push(fieldBlock(fl.l, 'set in the tracker', h('div', { class: 'roval' }, show(fl.t, cur(fl.c))))); continue; }
     const text = fl.c in draft ? draft[fl.c] : toText(fl.t, cur(fl.c));
-    els.push(fieldBlock(fl.l, null, input(fl, id, text, (d.opts || {})[fl.c], nv => { draft[fl.c] = nv; })));
+    els.push(fieldBlock(fl.l, null, input(fl, id, text, fl.t === 'choice' ? usedOpts(d, fl.c) : null, nv => { draft[fl.c] = nv; })));
   }
   // simple sums the app can work out itself are shown at once (marked) when what you typed differs from the tracker's last figures
   const liveRow = c => { if (c in draft) { const fl = f.fields.find(x => x.c === c); const [nv] = fromText(fl || { t: 'num' }, draft[c]); return nv; } return cur(c); };

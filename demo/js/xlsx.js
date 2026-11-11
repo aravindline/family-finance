@@ -41,10 +41,14 @@ export class Workbook {
   }
   hasSheet(name) { return !!this.sheetPath[name]; }
   _sheet(name) { const p = this.sheetPath[name]; if (!p) throw new Error('Sheet not found: ' + name); return { p, doc: this.xml(p) }; }
+  // rows of a sheet by number, indexed once per sheet (a sheet has thousands of rows; scanning them on every cell read was slow)
   _row(doc, r, create) {
-    const sd = doc.getElementsByTagNameNS(NS, 'sheetData')[0];
-    for (const el of sd.children) { const n = Number(el.getAttribute('r')); if (n === r) return el; if (n > r) { if (!create) return null; const nr = doc.createElementNS(NS, 'row'); nr.setAttribute('r', r); sd.insertBefore(nr, el); return nr; } }
-    if (!create) return null; const nr = doc.createElementNS(NS, 'row'); nr.setAttribute('r', r); sd.appendChild(nr); return nr;
+    this._ri = this._ri || new Map(); let idx = this._ri.get(doc); const sd = doc.getElementsByTagNameNS(NS, 'sheetData')[0];
+    if (!idx) { idx = new Map(); for (const el of sd.children) idx.set(Number(el.getAttribute('r')), el); this._ri.set(doc, idx); }
+    const hit = idx.get(r); if (hit || !create) return hit || null;
+    const nr = doc.createElementNS(NS, 'row'); nr.setAttribute('r', r);
+    let after = null; for (const el of sd.children) if (Number(el.getAttribute('r')) > r) { after = el; break; }
+    sd.insertBefore(nr, after); idx.set(r, nr); return nr;
   }
   _cell(doc, ref, create) {
     const [c, r] = splitRef(ref); const row = this._row(doc, r, create); if (!row) return null; const ci = col2n(c);
@@ -134,9 +138,13 @@ export class Workbook {
   isFormula(sheet, ref) { const { doc } = this._sheet(sheet); const c = this._cell(doc, ref, false); return !!(c && c.getElementsByTagNameNS(NS, 'f').length); }
   style(sheet, ref) { const { doc } = this._sheet(sheet); const c = this._cell(doc, ref, false); return c ? c.getAttribute('s') : null; }
   set(sheet, ref, value, style) {
-    const { p, doc } = this._sheet(sheet); if (this._grids) this._grids.delete(sheet); if (this._dv) this._dv.clear(); if (this._inp) this._inp.delete(sheet); if (this._fx) this._fx.delete(sheet);
+    const { p, doc } = this._sheet(sheet);
     const c = this._cell(doc, ref, true);
     if (c.getElementsByTagNameNS(NS, 'f').length) throw new FormulaCellError(sheet + '!' + ref + ' holds a formula; the app never writes formula cells.');
+    // caches stay valid: this cell's value goes into the grid, its style into the input set; dropdown lists are read again
+    const g = this._grids && this._grids.get(sheet); if (g) { const [cc, rr] = splitRef(ref); let m = g.get(rr); if (value === null || value === undefined || value === '') { if (m) m.delete(col2n(cc)); } else { if (!m) { m = new Map(); g.set(rr, m); } m.set(col2n(cc), value); } }
+    if (this._dv) this._dv.clear();
+    const inp = this._inp && this._inp.get(sheet); if (inp && style !== undefined && style !== null) { if (this.yellowStyles().has(String(style))) inp.add(ref); else inp.delete(ref); }
     while (c.firstChild) c.removeChild(c.firstChild); c.removeAttribute('t');
     if (style !== undefined && style !== null) c.setAttribute('s', style);
     if (value === null || value === undefined || value === '') { this.dirty.add(p); return; }
@@ -152,21 +160,22 @@ export class Workbook {
     return { ...t, el, c1: col2n(c1), r1, c2: col2n(c2), r2, cols };
   }
   tableRows(name) {
-    const t = this.table(name); const out = [];
-    for (let r = t.r1 + 1; r <= t.r2; r++) { const o = { _row: r }; t.cols.forEach((h, i) => { o[h] = this.get(t.sheet, n2col(t.c1 + i) + r); }); out.push(o); }
+    const t = this.table(name); const g = this.grid(t.sheet); const out = [];
+    for (let r = t.r1 + 1; r <= t.r2; r++) { const m = g.get(r); const o = { _row: r }; t.cols.forEach((h, i) => { const v = m && m.get(t.c1 + i); o[h] = v === undefined ? null : v; }); out.push(o); }
     return out;
   }
   // Writes into the first fully empty row of the table, or grows the table by one row.
   appendTableRow(name, values) {
-    const t = this.table(name);
+    const t = this.table(name); const g = this.grid(t.sheet); const fx = this.formulaRefs(t.sheet);
+    const skip = (h, ref) => !(h in values) && fx.has(ref); // worked out by the tracker (e.g. EPF counted so far): left alone
     let r = null;
-    for (let rr = t.r1 + 1; rr <= t.r2; rr++) { if (t.cols.every((h, i) => { const ref = n2col(t.c1 + i) + rr; if (!(h in values) && this.isFormula(t.sheet, ref)) return true; const v = this.get(t.sheet, ref); return v === null || v === ''; })) { r = rr; break; } }
+    for (let rr = t.r1 + 1; rr <= t.r2 && r === null; rr++) { const m = g.get(rr); if (t.cols.every((h, i) => skip(h, n2col(t.c1 + i) + rr) || !m || m.get(t.c1 + i) === undefined)) r = rr; }
     if (r === null) {
       r = t.r2 + 1; const ref = n2col(t.c1) + t.r1 + ':' + n2col(t.c2) + r;
       t.el.setAttribute('ref', ref); const af = t.el.getElementsByTagNameNS(NS, 'autoFilter')[0]; if (af) af.setAttribute('ref', ref);
       this.dirty.add(t.path);
     }
-    t.cols.forEach((h, i) => { const ref = n2col(t.c1 + i) + r; if (!(h in values) && this.isFormula(t.sheet, ref)) return; // worked out by the tracker (e.g. EPF counted so far): left alone
+    t.cols.forEach((h, i) => { const ref = n2col(t.c1 + i) + r; if (skip(h, ref)) return;
       const above = r > t.r1 + 1 ? this.style(t.sheet, n2col(t.c1 + i) + (r - 1)) : this.style(t.sheet, ref); this.set(t.sheet, ref, h in values ? values[h] : null, above); });
     return r;
   }

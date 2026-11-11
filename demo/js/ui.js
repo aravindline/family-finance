@@ -91,9 +91,12 @@ export function icon(name, size = 20) {
 const CAT = { 'Food': ['c_food', 2], 'Household': ['c_home', 3], 'Rent & Bills': ['c_bolt', 4], 'Travel': ['c_car', 1], 'Health': ['c_health', 8], 'Shopping': ['c_bag', 5],
   'Entertainment': ['c_fun', 7], 'Family & Social': ['c_people', 6], 'Personal': ['c_user', 1], 'Children': ['c_child', 5], 'One-time': ['c_star', 7],
   'Salary': ['i_brief', 1], 'Investment / savings income': ['up', 3], 'Rewards': ['c_star', 7], 'Gifts': ['g_gift', 6], 'Others': ['g_coin', 4] };
+// icons picked on this phone for categories (More › Expenses or Income › Category icons); colour stays the category's own
+let MINE = {}; export function setCatIcons(m) { MINE = m || {}; }
+export const CAT_ICONS = ['c_food', 'c_home', 'c_bolt', 'c_car', 'c_health', 'c_bag', 'c_fun', 'c_people', 'c_user', 'c_child', 'c_star', 'c_tag', 'g_leaf', 'g_plane', 'g_cap', 'g_gift', 'i_brief', 'g_coin', 'up', 'shield', 'flame', 'calendar'];
 export function catColor(name) { const c = (CAT[name] || [0, 0])[1]; return c ? 'var(--s' + c + ')' : 'var(--muted)'; }
 export function catIcon(name, size = 18) {
-  const [ic, col] = CAT[name] || ['c_tag', 0];
+  const [ic0, col] = CAT[name] || ['c_tag', 0]; const ic = MINE[name] || ic0;
   const el = h('span', { class: 'caticon', 'aria-hidden': 'true' }, icon(ic, size));
   el.style.setProperty('--cc', col ? 'var(--s' + col + ')' : 'var(--muted)'); return el;
 }
@@ -213,14 +216,6 @@ export function columnChart(rows, { series = ['Total'], colors = [SERIES[0]], he
 }
 
 // Tiny trend line for a tile (decorative; the tile text carries the figure).
-export function miniSpark(vals, label = 'Trend') {
-  const W = 120, H = 24; const v = vals.length ? vals : [0]; const hi = Math.max(...v), lo = Math.min(0, ...v); const sp = hi - lo || 1;
-  const X = i => v.length === 1 ? W / 2 : i * (W - 2) / (v.length - 1) + 1; const Y = n => H - 2 - (n - lo) / sp * (H - 4);
-  const d = v.map((n, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(n).toFixed(1)).join(' ');
-  return s('svg', { class: 'minispark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': label },
-    s('path', { class: 'ms-a', d: d + ` L${X(v.length - 1)} ${H} L${X(0)} ${H} Z` }), s('path', { class: 'ms-l', d, 'vector-effect': 'non-scaling-stroke' }));
-}
-// Donut for parts of a whole, with a legend that carries names and values (never colour alone).
 export function donut(parts, { centre = '', sub = '', fmt = F.inrShort } = {}) {
   const total = parts.reduce((a, p) => a + Math.max(0, p.value || 0), 0) || 1;
   const R = 52, CX = 66, CY = 66, SW = 16, C = 2 * Math.PI * R;

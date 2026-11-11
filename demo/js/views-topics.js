@@ -13,9 +13,9 @@ export const TOPICS = [
   { id: 'expenses', icon: 'spend', title: 'Expenses', sub: 'Recurring, events, expense lists', items: [
     ['view', 'recurring', 'calendar', 'Recurring', 'Rent and other fixed amounts, added after you approve'],
     ['view', 'events', 'c_tag', 'Events', 'Trips, festivals, functions and what they cost'],
-    ['head', 'Lists'], ['form', 'expcatnames'], ['form', 'expcats'], ['form', 'paymodes']] },
+    ['head', 'Lists'], ['form', 'expcatnames'], ['form', 'expcats'], ['form', 'paymodes'], ['icons', 'expense', 'c_tag', 'Category icons', 'Pick an icon for each expense category (this phone)']] },
   { id: 'income', icon: 'g_coin', title: 'Income', sub: 'Income lists', items: [
-    ['head', 'Lists'], ['form', 'inccats'], ['form', 'incaccts']] },
+    ['head', 'Lists'], ['form', 'inccats'], ['form', 'incaccts'], ['icons', 'income', 'c_tag', 'Category icons', 'Pick an icon for each income category (this phone)']] },
   { id: 'equity', icon: 'up', title: 'Equity', sub: 'Kite (India) and international stocks', items: [
     ['view', 'kite', 'upload', 'Kite holdings', 'Paste each account from Kite; account names'],
     ['form', 'intl', 'up', 'International holdings', 'US stocks (INDmoney), with platform, date and USD rate'],
@@ -23,15 +23,15 @@ export const TOPICS = [
     ['form', 'currencies', 'g_coin', 'Currencies', 'USD and up to 5 more (e.g. JPY), with today\'s ₹ rate'],
     ['head', 'Sectors'], ['form', 'sectors'], ['form', 'sectorlist']] },
   { id: 'mf', icon: 'pie', title: 'Mutual funds', sub: 'Equity, debt and arbitrage funds', items: [
-    ['view', 'cas', 'doc', 'CAS statement', 'Upload the monthly CDSL PDF: MF folios and a quantity check'],
-    ['form', 'otherhold', 'pie', 'Funds and bonds outside demat', 'One row per folio or holding']] },
-  { id: 'cash', icon: 'bank', title: 'Cash & fixed income', sub: 'Bank, FD/RD, EPF, NPS, bonds, money lent', items: [
-    ['form', 'assets', 'bank', 'Bank, deposits and other assets', 'Savings, FD/RD, EPF, NPS and more, for Aravind and Madhu'],
-    ['form', 'fd', 'calendar', 'FD / RD details', 'Rates and maturity dates, for reminders'],
+    ['view', 'cas', 'doc', 'CAS statement', 'Upload the monthly CDSL PDF: funds in folios and in demat, and a quantity check'],
+    ['form', 'otherhold', 'pie', 'Holdings outside demat', 'MF folios, bonds, digital gold or silver, chit funds, gold schemes, P2P lending']] },
+  { id: 'cash', icon: 'bank', title: 'Cash & fixed income', sub: 'Bank, cash, FD / RD, EPF, gratuity, NPS, money lent', items: [
+    ['form', 'assets', 'bank', 'Bank, cash and other balances', 'Savings accounts, cash at home, rental deposit, NPS, PPF and more'],
+    ['view', 'deposits', 'calendar', 'FD / RD', 'Each FD and RD once, with its maturity; matured and closed ones'],
     ['view', 'epf', 'bank', 'EPF', 'Opening balance, monthly amount for the year, interest when credited'],
-    ['view', 'lent', 'hand', 'Money lent', 'Who owes you, and when to follow up'],
-    ['topic', 'mf', 'pie', 'Funds and bonds outside demat', 'Kept under Mutual funds']] },
-  { id: 'gold', icon: 'g_coin', title: 'Gold & other assets', sub: 'Physical gold, vehicles', items: [['form', 'gold'], ['form', 'vehicles']] },
+    ['view', 'gratuity', 'g_coin', 'Gratuity', 'Company, joining date and basic + DA, for Aravind and Madhu'],
+    ['view', 'lent', 'hand', 'Money lent', 'Who owes you, and when to follow up']] },
+  { id: 'gold', icon: 'g_coin', title: 'Gold & other assets', sub: 'Physical gold, vehicles; digital gold and schemes go in Mutual funds', items: [['form', 'gold'], ['form', 'vehicles']] },
   { id: 'loans', icon: 'loan', title: 'Loans', sub: 'Outstanding, rate, EMI and dates', items: [['form', 'loans']] },
   { id: 'fire', icon: 'flame', title: 'FIRE & goals', sub: 'Goals, FIRE assumptions', items: [['form', 'goals'], ['form', 'settings', 'gear']] },
   { id: 'yearly', icon: 'shield', title: 'Yearly & one-time', sub: 'Insurance, documents, handover, year in review', items: [
@@ -72,11 +72,18 @@ function badge(id, s) {
   return null;
 }
 
+// a topic with one screen opens that screen straight away (no "Loans › Loans" double tap); Back returns to More
+function openTopic(t) {
+  state.topic = t.id; state.fromTopic = null; const only = t.items.filter(i => i[0] !== 'head');
+  if (only.length === 1 && only[0][0] === 'form') { state.formId = only[0][1]; state.formBack = 'more'; return ctx.go('form'); }
+  if (only.length === 1 && only[0][0] === 'view') { state.formBack = 'more'; return ctx.go(only[0][1]); }
+  ctx.go('tracker');
+}
 export function viewMoreTopics() {
   const s = ctx.snap();
   const month = h('section', { class: 'card', id: 'monthstrip' }, h('div', { class: 'li tap', onclick: () => ctx.go('monthly') }, h('span', { class: 'lead' }, icon('wizard')),
-    h('div', { class: 'body' }, h('div', { class: 'ttl' }, 'Month-end update'), h('div', { class: 'sub' }, 'Pick the month, then 8 short steps')), icon('right', 16)));
-  const tiles = h('div', { class: 'tiles', id: 'topics' }, TOPICS.map(t => h('button', { type: 'button', class: 'tile', 'data-topic': t.id, onclick: () => { state.topic = t.id; state.fromTopic = null; ctx.go('tracker'); } },
+    h('div', { class: 'body' }, h('div', { class: 'ttl' }, 'Month-end update'), h('div', { class: 'sub' }, 'Pick the month, then 8 short steps; saved and invested fill in by themselves')), icon('right', 16)));
+  const tiles = h('div', { class: 'tiles', id: 'topics' }, TOPICS.map(t => h('button', { type: 'button', class: 'tile', 'data-topic': t.id, onclick: () => openTopic(t) },
     h('div', { class: 't-l' }, icon(t.icon, 16), badge(t.id, s)), h('div', { class: 't-v tile-name', style: { fontSize: '1rem' } }, t.title), h('div', { class: 't-s', style: { whiteSpace: 'normal' } }, t.sub))));
   return { title: 'More', body: [month, h('div', { class: 'spacer' }), tiles] };
 }
@@ -90,6 +97,7 @@ export function viewTopic() {
     const list = groups[groups.length - 1][1];
     if (it[0] === 'view') list.push(row(it[1], it[2], it[3], it[4], () => { state.fromTopic = it[1]; ctx.go(it[1]); }));
     else if (it[0] === 'topic') list.push(row(it[1] + '-link', it[2], it[3], it[4], () => { state.topic = it[1]; ctx.render(); window.scrollTo(0, 0); }));
+    else if (it[0] === 'icons') list.push(row('icons-' + it[1], it[2], it[3], it[4], () => { state.iconKind = it[1]; state.fromTopic = 'caticons'; ctx.go('caticons'); }));
     else if (it[0] === 'act') list.push(row(it[1], it[2], it[3], it[4], () => ctx.lockNow()));
     else { const f = FORMS.find(x => x.id === it[1]); if (!f) continue; list.push(row(f.id, it[2] || 'edit', it[3] || f.title, s ? (it[4] ? it[4] + ' · ' : '') + formStatus(f).text : 'Sync with the tracker first', () => { state.formId = f.id; ctx.go('form'); })); }
   }

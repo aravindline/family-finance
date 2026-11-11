@@ -12,13 +12,18 @@ import { col2n, n2col, splitRef } from './xlsx.js';
 import { isTidy, readArea, toTidy, TIDY } from './kite.js';
 
 const blank = v => v === null || v === undefined || v === '';
-const HISTORY = new Set(['tblDaily', 'tblIncome', 'tblEvents', 'tblLent', 'tblRepaid', 'tblBudget', 'tblChartNotes', 'tblSyncLog', 'tblAppMeta', 'tblInvestedHist', 'tblEPF', 'tblGoalLinks']);
+const HISTORY = new Set(['tblDaily', 'tblIncome', 'tblEvents', 'tblLent', 'tblRepaid', 'tblBudget', 'tblChartNotes', 'tblSyncLog', 'tblAppMeta', 'tblInvestedHist', 'tblEPF', 'tblGoalLinks', 'tblDeposits', 'tblMonthClose']);
 const META = 'tblAppMeta';
 // Input cells a version removed on purpose (approved by Aravind). A value typed there is listed as "not carried over",
 // so the move can still go ahead. Key = the version that removed them.
 const DROPPED = {
   26: { 'Expenses': /^T(2[7-9]|[3-9]\d|1[0-4]\d)$/, 'Other Holdings': /^A7$/, 'Loans': /^R[4-6]$/, 'Estate & Contacts': /^[A-E](1[1-9]|20)$/, 'Goals': /^C7$/ },
+  29: { 'Other Assets': /^[J-O](1[4-9]|2[01])$/ }, // the FD / RD details block: its rows become FD / RD register entries
 };
+// v29: labels say "Aravind's retirement" instead of a fixed age; a setting whose label was reworded still finds its row
+const RELABEL = [[/\bFIRE at 40\b/g, 'FIRE at retirement'], [/\bAfter 40\b/g, 'After retirement'], [/\bafter 40\b/g, 'after retirement'], [/\bafter-40\b/g, 'after-retirement'],
+  [/\bBefore 40\b/g, 'Before retirement'], [/\bbefore 40\b/g, 'before retirement'], [/\bat 40\b/g, 'at retirement'], [/^Gratuity cap \(₹\)$/, 'Gratuity tax-free limit (₹)']];
+export const relabel = s => RELABEL.reduce((t, [a, b]) => t.replace(a, b), s);
 // Input cells a version moved to a new place (old ref -> new ref)
 const MOVED = { 26: { 'Other Holdings': { A8: 'K5', B8: 'K6' } } };
 function movedBy(from, to, sheet, ref) {
@@ -118,6 +123,43 @@ export function moveData(oldWb, newWb) {
     }
     if (n) notes.push('EPF: ' + n + ' typed figure' + (n > 1 ? 's' : '') + ' carried to the new EPF sheet (balance as an opening balance this month, past months as they were).');
   }
+  // ---- 2c. v29: FD / RD rows on Other Assets become entries in the FD / RD register (Deposits), with rate and dates from
+  //  the old details block; Settings "joined" and gratuity accrual move to the Gratuity sheet (Aravind's column).
+  if ((vFrom || 0) < 29 && (vTo || 0) >= 29 && newWb.tables.tblDeposits) {
+    const at = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    if (oldWb.hasSheet('Other Assets')) {
+      const g = oldWb.grid('Other Assets'); const cellv = (r, c) => { const m = g.get(r); return m ? m.get(col2n(c)) ?? null : null; };
+      const details = {}; for (let r = 14; r <= 21; r++) { const k = cellv(r, 'J'); if (typeof k === 'string' && k.trim()) details[k.trim()] = r; }
+      let n = 0;
+      for (let r = 15; r <= 19; r++) {
+        // the row's Type decides; a row with no Type is placed by its name (the blank tracker's names are "Fixed deposit 1" and so on)
+        const type = String(cellv(r, 'C') || cellv(r, 'A') || '').trim();
+        const kind = /recurring|\bRD\b/i.test(type) ? 'RD' : /corporate/i.test(type) ? 'Corporate FD' : /fixed|\bFD\b/i.test(type) ? 'FD' : null;
+        for (const c of 'ABCDEG') skipCell.add('Other Assets|' + c + r);
+        if (!kind) continue;
+        const name = String(cellv(r, 'A') || type).trim(); const dr = details[name];
+        const rate = dr ? cellv(dr, 'K') : null, start = dr ? cellv(dr, 'L') : null, mat = dr ? cellv(dr, 'M') : null;
+        for (const [c, who] of [['D', 'Aravind'], ['E', 'Madhu']]) {
+          if (oldWb.isFormula('Other Assets', c + r)) continue; const v = cellv(r, c); if (typeof v !== 'number' || !v) continue;
+          n++; const rd = kind === 'RD';
+          const row = newWb.appendTableRow('tblDeposits', { 'Deposit ID': 'DEP-MOVED-' + n, Name: name, Bank: cellv(r, 'B') || '', Whose: who, Kind: kind, 'Amount (₹)': rd ? null : v,
+            'Rate %': typeof rate === 'number' ? rate : null, Start: typeof start === 'number' ? start : null, Maturity: typeof mat === 'number' ? mat : null, Status: 'Active',
+            Notes: rd ? 'RD balance ₹' + Math.round(v).toLocaleString('en-IN') + ' carried from v' + vFrom + ': add the monthly instalment, start and maturity' : 'Carried from v' + vFrom,
+            'Entered by': 'Move to v29', 'Entered at': at });
+          if (rd) notes.push('Your recurring deposit "' + name + '" (₹' + Math.round(v).toLocaleString('en-IN') + ', ' + who + ') is in the FD / RD list: open Cash & fixed income › FD / RD and add its monthly instalment, start and maturity so its value counts again.');
+          else copied.push({ sheet: 'Deposits', ref: 'F' + row, value: v });
+        }
+        if (dr) for (const c of 'JKLMNO') skipCell.add('Other Assets|' + c + dr);
+      }
+      if (n) notes.push('FD / RD: ' + n + ' deposit' + (n > 1 ? 's' : '') + ' moved from Other Assets to the new FD / RD list.');
+    }
+    if (oldWb.hasSheet('Settings') && newWb.hasSheet('Gratuity')) {
+      const join = oldWb.get('Settings', 'C58'), accr = oldWb.get('Settings', 'C59');
+      const lab = r => String(oldWb.get('Settings', 'B' + r) || '');
+      if (/joined/i.test(lab(58)) && typeof join === 'number' && join) { put('Gratuity', 'C7', join); skipCell.add('Settings|C58'); }
+      if (/gratuity accrual/i.test(lab(59)) && typeof accr === 'number' && accr) { put('Gratuity', 'C8', Math.round(accr / (15 / 26 / 12))); skipCell.add('Settings|C59'); notes.push('Gratuity: joining date and basic + DA (worked out from the monthly accrual) moved to the new Gratuity sheet for Aravind. Add the company and check the figure.'); }
+    }
+  }
   // ---- 3. every other input cell
   const ob = tableBoxes(oldWb, HISTORY);
   for (const sheet of Object.keys(oldWb.sheetPath)) {
@@ -125,20 +167,23 @@ export function moveData(oldWb, newWb) {
     const nin = newWb.hasSheet(sheet) ? newWb.inputRefs(sheet) : null;
     const og = oldWb.grid(sheet), ng = nin ? newWb.grid(sheet) : null;
     // a row's label: the first typed, non-input, non-formula text in columns A to D (e.g. a setting's name)
-    const labelOf = (wb, g, inp, r) => { for (let c = 1; c <= 4; c++) { const ref = n2col(c) + r; const v = g.get(r) && g.get(r).get(c); if (typeof v === 'string' && v.trim() && !inp.has(ref) && !wb.isFormula(sheet, ref)) return [c, v.trim()]; } return null; };
+    const labelOf = (wb, g, inp, r) => { for (let c = sheet === 'Settings' ? 2 : 1; c <= 4; c++) { const ref = n2col(c) + r; const v = g.get(r) && g.get(r).get(c); if (typeof v === 'string' && v.trim() && !inp.has(ref) && !wb.isFormula(sheet, ref)) return [c, v.trim()]; } return null; };
     const newRowOf = new Map();
     const target = (ref) => {
       const [c, r] = splitRef(ref); const lab = labelOf(oldWb, og, refs, r); if (!lab) return ref;
       const here = labelOf(newWb, ng, nin, r); if (here && here[0] === lab[0] && here[1] === lab[1]) return ref;
       const key = lab[0] + '|' + lab[1];
-      if (!newRowOf.has(key)) { let hit = null; for (const [rr, m] of ng) { const v = m.get(lab[0]); if (typeof v === 'string' && v.trim() === lab[1] && !nin.has(n2col(lab[0]) + rr)) { hit = rr; break; } } newRowOf.set(key, hit); }
+      if (!newRowOf.has(key)) {
+        const find = want => { for (const [rr, m] of ng) { const v = m.get(lab[0]); if (typeof v === 'string' && v.trim() === want && !nin.has(n2col(lab[0]) + rr)) return rr; } return null; };
+        newRowOf.set(key, find(lab[1]) ?? (relabel(lab[1]) !== lab[1] ? find(relabel(lab[1])) : null));
+      }
       const rr = newRowOf.get(key); return rr ? c + rr : null;
     };
     for (const ref of refs) {
       if (inBox(ob[sheet], ref)) continue; // handled with its table
       if (sheet === 'Paste Holdings' && (skipPaste.has(ref) || (!oldTidy && splitRef(ref)[1] >= 13))) continue;
       if (sheet === 'Paste Holdings' && newTidy && splitRef(ref)[1] >= 6 && splitRef(ref)[1] <= 11 && /^APP/i.test(String(oldWb.get(sheet, 'A' + splitRef(ref)[1]) || ''))) continue; // combined app slots are not used from v25
-      if (skipCell.has(sheet + '|' + ref)) continue; // carried to the EPF sheet above
+      if (skipCell.has(sheet + '|' + ref)) continue; // converted above (EPF sheet, FD / RD register, Gratuity)
       const v = oldWb.get(sheet, ref); if (blank(v)) continue;
       const mv = movedBy(vFrom, vTo, sheet, ref); if (mv && nin && nin.has(mv)) { put(sheet, mv, v); continue; }
       if (sheet === 'Other Holdings' && ref === 'A7' && String(v).trim().toUpperCase() === 'USD' && (vTo || 0) >= 26 && (vFrom || 0) < 26) continue; // USD is built in from v26

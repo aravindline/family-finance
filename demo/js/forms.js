@@ -6,31 +6,18 @@ import { col2n, n2col, serialToISO } from './xlsx.js';
 // t: text | money | num | pct | date | month | year | choice | phone | email
 // guard: refuse long digit runs (account / card numbers) in that text field
 const N = x => Number(x) || 0;
-export const GROUPS = [
-  ['month', 'Every month'],
-  ['assets', 'Assets and holdings'],
-  ['loans', 'Loans'],
-  ['protect', 'Insurance, documents and family'],
-  ['goals', 'Goals'],
-  ['plan', 'Plan settings'],
-  ['lists', 'Lists and rules'],
-];
-
 export const FORMS = [
-  { id: 'assets', group: 'assets', title: 'Bank, deposits and other assets', sub: 'Balances split between Aravind and Madhu', sheet: 'Other Assets', rows: [7, 37], stamp: 'B3',
+  { id: 'assets', group: 'assets', title: 'Bank, cash and other balances', sub: 'Balances split between Aravind and Madhu', sheet: 'Other Assets', rows: [7, 37], stamp: 'B3',
     label: { c: 'A' }, show: ['D', 'E'], readonly: [{ c: 'F', l: 'Family (₹)', t: 'money', calc: v => N(v('D')) + N(v('E')) }, { c: 'H', l: 'Class (auto)', t: 'text' }],
     fields: [{ c: 'A', l: 'Item', t: 'text', guard: true }, { c: 'B', l: 'Bank / institution', t: 'text', guard: true }, { c: 'C', l: 'Type', t: 'choice' },
       { c: 'D', l: 'Aravind (₹)', t: 'money' }, { c: 'E', l: 'Madhu (₹)', t: 'money' }, { c: 'G', l: 'Notes', t: 'text', guard: true }] },
   { id: 'gold', group: 'assets', title: 'Physical gold', sub: 'Grams held and the rate used', sheet: 'Other Assets', stamp: 'B3',
     cells: [{ r: 'K5', l: 'Gold rate used (₹ per gram)', t: 'money' }, { r: 'K8', l: 'Aravind (grams)', t: 'num' }, { r: 'L8', l: 'Madhu (grams)', t: 'num' }],
     readonly: [{ r: 'M9', l: 'Value (₹)', t: 'money', calc: v => (N(v('K8')) + N(v('L8'))) * N(v('K5')) }, { r: 'K9', l: 'Aravind (₹)', t: 'money', calc: v => N(v('K8')) * N(v('K5')) }, { r: 'L9', l: 'Madhu (₹)', t: 'money', calc: v => N(v('L8')) * N(v('K5')) }] },
-  { id: 'fd', group: 'assets', title: 'FD / RD details', sub: 'Rates and maturity dates, for reminders', sheet: 'Other Assets', rows: [16, 21], stamp: 'B3',
-    label: { c: 'J' }, show: ['K', 'M'], readonly: [{ c: 'N', l: 'Days left', t: 'num' }, { c: 'O', l: 'Status', t: 'text' }],
-    fields: [{ c: 'J', l: 'FD / RD', t: 'choice' }, { c: 'K', l: 'Rate %', t: 'pct' }, { c: 'L', l: 'Start', t: 'date' }, { c: 'M', l: 'Maturity', t: 'date' }] },
   { id: 'vehicles', group: 'assets', title: 'Vehicles', sub: 'Value after depreciation counts in net worth', sheet: 'Other Assets', rows: [25, 26], stamp: 'B3',
     label: { c: 'J' }, show: ['K', 'L'], readonly: [{ c: 'O', l: 'Value now (₹)', t: 'money', calc: v => N(v('L')) ? Math.round(N(v('L')) * Math.pow(1 - N(v('N')), Math.max(0, new Date().getFullYear() - N(v('M'))))) : null }],
     fields: [{ c: 'J', l: 'Vehicle', t: 'text', guard: true }, { c: 'K', l: 'Owner', t: 'choice' }, { c: 'L', l: 'Price paid (₹)', t: 'money' }, { c: 'M', l: 'Year bought', t: 'year' }, { c: 'N', l: 'Depreciation % a year', t: 'pct' }] },
-  { id: 'otherhold', group: 'assets', title: 'Funds and bonds outside demat', sub: 'Bonds, MFs outside demat, other platforms', sheet: 'Other Holdings', rows: [13, 112], stamp: 'B9',
+  { id: 'otherhold', group: 'assets', title: 'Holdings outside demat', sub: 'MF folios, bonds, digital gold or silver, chit funds, gold schemes, P2P lending', sheet: 'Other Holdings', rows: [13, 112], stamp: 'B9',
     label: { c: 'C' }, show: ['A', 'B'], readonly: [{ c: 'M', l: 'Invested (₹)', t: 'money' }, { c: 'N', l: 'Current (₹)', t: 'money' }, { c: 'P', l: 'Return', t: 'pct' }],
     fields: [{ c: 'A', l: 'Owner', t: 'choice' }, { c: 'B', l: 'Platform', t: 'text', guard: true }, { c: 'C', l: 'Holding name', t: 'text', guard: true }, { c: 'D', l: 'Asset type', t: 'choice' },
       { c: 'F', l: 'Currency', t: 'choice' }, { c: 'G', l: 'Units', t: 'num' }, { c: 'H', l: 'Avg cost / unit', t: 'num' }, { c: 'I', l: 'Price / unit', t: 'num' },
@@ -49,10 +36,15 @@ export const FORMS = [
   { id: 'intlset', group: 'assets', back: 'formintl', title: 'International holdings: settings', sub: 'Platform, default owner, date and USD rate', sheet: 'Intl Holdings',
     cells: [{ r: 'C4', l: 'Platform', t: 'text', guard: true }, { r: 'C5', l: 'Default owner', t: 'choice' }, { r: 'C6', l: 'Holdings as on', t: 'date' }, { r: 'C7', l: 'USD / INR rate', t: 'num' }, { r: 'C8', l: 'Total invested in ₹ (optional)', t: 'money' }],
     readonly: [{ r: 'L7', l: 'Current (₹)', t: 'money' }, { r: 'L8', l: 'P&L (₹)', t: 'money' }] },
-  { id: 'intl', group: 'assets', title: 'International holdings', sub: 'One row per US stock (INDmoney)', sheet: 'Intl Holdings', rows: [13, 112],
-    label: { c: 'A' }, show: ['C', 'G'], readonly: [{ c: 'J', l: 'Invested ($)', t: 'num' }, { c: 'K', l: 'Current ($)', t: 'num' }, { c: 'N', l: 'Current (₹)', t: 'money' }, { c: 'L', l: 'Return', t: 'pct' }],
+  { id: 'intl', group: 'assets', title: 'International holdings', sub: 'One row per stock, with its broker and currency', sheet: 'Intl Holdings', rows: [13, 112], addLabel: 'Add stock',
+    label: { c: 'A' }, show: ['C', 'S'], readonly: [{ c: 'J', l: 'Invested ($)', t: 'num' }, { c: 'K', l: 'Current ($)', t: 'num' }, { c: 'N', l: 'Current (₹)', t: 'money' }, { c: 'L', l: 'Return', t: 'pct' }],
     fields: [{ c: 'A', l: 'Stock symbol', t: 'text', guard: true }, { c: 'B', l: 'Holding since', t: 'text' }, { c: 'C', l: 'Quantity', t: 'num' }, { c: 'D', l: 'Avg price ($)', t: 'num' },
-      { c: 'E', l: 'Total value ($) (cost)', t: 'num' }, { c: 'F', l: 'Current price ($)', t: 'num' }, { c: 'G', l: 'Owner (blank = default)', t: 'choice' }, { c: 'H', l: 'Notes', t: 'text', guard: true }] },
+      { c: 'E', l: 'Total value ($) (cost)', t: 'num' }, { c: 'F', l: 'Current price ($)', t: 'num' }, { c: 'G', l: 'Owner (blank = default)', t: 'choice' },
+      { c: 'S', l: 'Broker (blank = platform above)', t: 'text', guard: true }, { c: 'U', l: 'Currency (blank = USD)', t: 'choice' }, { c: 'H', l: 'Notes', t: 'text', guard: true }] },
+  // v29: gratuity for both (Aravind, 11 Nov 2026); the Gratuity sheet works out the amounts
+  { id: 'gratuity', group: 'assets', back: 'gratuity', title: 'Gratuity details', sub: 'Company, joining date, basic + DA, for Aravind and Madhu', sheet: 'Gratuity',
+    cells: [['C', 'Aravind'], ['D', 'Madhu']].flatMap(([c, p]) => [{ r: c + '6', l: p + ': company', t: 'text', guard: true }, { r: c + '7', l: p + ': joining date', t: 'date' }, { r: c + '8', l: p + ': monthly basic + DA (₹)', t: 'money' },
+      { r: c + '9', l: p + ': monthly total pay, gross (₹, optional)', t: 'money' }, { r: c + '10', l: p + ': fixed-term employee?', t: 'choice' }]) },
 
   { id: 'loans', group: 'loans', title: 'Loans', sub: 'Outstanding, rate, EMI and dates', sheet: 'Loans', rows: [7, 15], stamp: 'B3',
     label: { c: 'A' }, show: ['C', 'D'], readonly: [{ c: 'E', l: 'Total (₹)', t: 'money', calc: v => N(v('C')) + N(v('D')) }, { c: 'K', l: 'EMIs left (auto)', t: 'num' }, { c: 'L', l: 'Last EMI (auto)', t: 'month' }, { c: 'M', l: 'Interest still to pay (₹)', t: 'money' }],

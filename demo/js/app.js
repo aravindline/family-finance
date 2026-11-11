@@ -7,7 +7,7 @@ import { CONFIG } from './config.js';
 import { GraphFile } from './graph.js';
 import { syncOnce, syncExtraFile } from './sync.js';
 import { uuid } from './crypto.js';
-import { h, icon, toast, sheet, seg, haptic } from './ui.js';
+import { h, icon, toast, sheet, seg, haptic, setCatIcons } from './ui.js';
 import { ctx, state } from './ctx.js';
 import * as M from './views-main.js';
 import * as W from './views-more.js';
@@ -24,8 +24,9 @@ import * as YV from './views-year.js';
 import * as TV from './views-topics.js';
 import * as V12 from './views-v12.js';
 import * as MV from './views-move.js';
+import * as V13 from './views-v13.js';
 
-export const APP_VERSION = '0.12.0 (goals & EPF)';
+export const APP_VERSION = '0.13.0 (Home tiles, FD / RD, gratuity)';
 const $app = document.getElementById('app');
 
 // ---------- appearance (kept outside the vault so the lock screen matches)
@@ -57,7 +58,8 @@ document.addEventListener('visibilitychange', () => {
   document.body.classList.remove('privacy');
   if (hiddenAt && V.isUnlocked()) {
     const g = settings().graceSec; const away = Date.now() - hiddenAt;
-    if (away > g * 1000) lockNow(); else state.lastActive = Date.now();
+    if (g >= 0 && away > g * 1000) lockNow(); else state.lastActive = Date.now(); // g < 0: "Don't lock on this device"
+
   }
   hiddenAt = null;
 });
@@ -126,7 +128,7 @@ async function doSync(manual) {
   } finally {
     state.syncing = false;
     // never redraw a screen the person is typing into (or one with a sheet open): only the sync pill changes
-    if (V.isUnlocked()) { if (['addexpense', 'addincome', 'monthly', 'holdings', 'suggest', 'formedit', 'form', 'kite', 'intlpaste', 'cas', 'move'].includes(state.view) || document.querySelector('.scrim')) renderTop(); else render(); }
+    if (V.isUnlocked()) { if (['addexpense', 'addincome', 'monthly', 'suggest', 'formedit', 'form', 'kite', 'intlpaste', 'cas', 'move'].includes(state.view) || document.querySelector('.scrim')) renderTop(); else render(); }
   }
 }
 // suggestion box: a separate small file in OneDrive; unsent suggestions are appended at each sync
@@ -148,7 +150,7 @@ setInterval(() => { if (V.isUnlocked() && navigator.onLine && document.visibilit
 const TABS = [['home', 'Home', 'home'], ['spend', 'Money', 'spend'], ['add', '', 'plus'], ['wealth', 'Wealth', 'wealth'], ['more', 'More', 'more']];
 const TAB_OF = { home: 'home', spend: 'spend', addexpense: 'spend', addincome: 'spend', income: 'spend', reports: 'spend', recurring: 'spend', events: 'spend', activity: 'home', conflicts: 'home',
   wealth: 'wealth', plan: 'wealth', alerts: 'wealth', checks: 'wealth', lent: 'more', protection: 'more', documents: 'more', settings: 'more', more: 'more', changelock: 'more', backup: 'more', restore: 'more',
-  monthly: 'more', holdings: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more' };
+  monthly: 'more', deposits: 'more', gratuity: 'more', caticons: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more' };
 function syncPill() {
   const st = V.get('sync', 'state') || {}; const pending = V.all('outbox').length; const conflicts = V.all('conflict').length;
   let cls = 'pill', text;
@@ -236,6 +238,7 @@ function shell(view) { // view: { title, back?, body: [nodes] }
   // a screen opened from a More topic page goes back to that page; opened from elsewhere, to where it says
   if (state.fromTopic && state.fromTopic === state.view && view.back) view.back = 'tracker';
   if (state.fromWiz && state.fromWiz === state.view && state.wiz && view.back) view.back = 'monthly';
+  if (state.formBack && view.back === 'tracker') view.back = state.formBack;
   $app.className = 'app shell';
   const demo = CONFIG.demo ? h('div', { class: 'demobar', id: 'demobar', role: 'note' }, 'DEMO COPY · made-up data · nothing reaches your tracker') : null;
   $app.replaceChildren(...[topbar(view.title, view), demo].filter(Boolean), h('main', { class: 'page', id: 'main' }, tipFor(state.view), ...view.body), nav());
@@ -243,10 +246,22 @@ function shell(view) { // view: { title, back?, body: [nodes] }
 const NO_REOPEN = ['addexpense', 'addincome', 'formedit', 'kite', 'intlpaste', 'cas', 'move', 'changelock', 'backup', 'restore', 'conflicts', 'lock', 'forgot', 'setup'];
 // Phone back button: every screen change is a browser history step, so Back returns to the previous screen
 // (or closes an open sheet) instead of leaving the app.
-function go(view, opts = {}) { const prev = state.view; state.view = view; if (view === 'spend' && !opts.keepMoney) state.moneyTab = 'spending'; if (['home', 'spend', 'wealth', 'more'].includes(view)) state.fromTopic = null; window.scrollTo(0, 0); render();
+function go(view, opts = {}) { const prev = state.view; state.view = view; if (view === 'spend' && !opts.keepMoney) state.moneyTab = 'spending'; if (['home', 'spend', 'wealth', 'more', 'tracker'].includes(view)) { state.formBack = null; if (view !== 'tracker') state.fromTopic = null; } window.scrollTo(0, 0); render();
   try { if (V.isUnlocked() && prev !== view && !['lock', 'setup', 'forgot'].includes(view)) history[opts.replace ? 'replaceState' : 'pushState']({ v: view }, ''); } catch (e) { /* ignore */ }
-  if (V.isUnlocked() && TAB_OF[view] && !NO_REOPEN.includes(view)) saveSettings({ lastView: view, lastTab: Object.assign({}, state.tab) }).catch(() => {}); }
+  if (V.isUnlocked() && TAB_OF[view] && !NO_REOPEN.includes(view)) saveSettings({ lastView: view, lastTab: Object.assign({}, state.tab), lastCtx: REOPEN_KEYS.reduce((o, k) => (state[k] !== undefined && state[k] !== null ? Object.assign(o, { [k]: state[k] }) : o), {}) }).catch(() => {}); }
+// what a screen needs to show itself again after the app was locked (which block, which More topic, which person)
+const REOPEN_KEYS = ['formId', 'formGroup', 'topic', 'fromTopic', 'formBack', 'iconKind', 'person', 'moneyTab'];
 
+// Windows Hello without PRF: explain the weaker way and turn it on only if the person agrees
+function deviceKeySheet(raw, credId) {
+  const sc = sheet('Fingerprint on this laptop',
+    h('p', {}, 'This laptop\'s Windows Hello cannot hand the app a secret, so the strongest way is not possible here.'),
+    h('p', {}, 'The app can instead keep a key in this browser that cannot be copied out, and use it only after Windows Hello confirms it is you.'),
+    h('p', { class: 'hint' }, 'Weaker than on your phone: someone who can run programs in your Windows account and this browser could open the app without your fingerprint. Your PIN keeps working either way, and you can turn this off any time.'),
+    h('div', { class: 'spacer' }),
+    h('button', { class: 'btn primary wide', id: 'bioagree', onclick: async () => { try { await Bio.enrollDeviceKey(raw, credId); sc(); toast("Fingerprint unlock is on"); go("settings"); } catch (e) { toast(e.message || String(e), 'bad'); } } }, 'Use Windows Hello on this laptop'),
+    h('button', { class: 'btn wide', style: { marginTop: '8px' }, onclick: () => sc() }, "Keep using the PIN"));
+}
 // ---------- PIN / passphrase entry
 function secretInput(type, onDone, opts = {}) {
   if (type === 'pin') {
@@ -310,7 +325,8 @@ async function viewLock() {
   const type = await V.lockType(); const bio = await Bio.enrolled();
   const msg = h('p', { class: 'hint', 'aria-live': 'assertive' }, type === 'pin' ? 'Enter your PIN' : 'Enter your passphrase');
   let waiting = false;
-  const done = async () => { state.lastActive = Date.now(); bioTried = false; try { await X.recordOpen(); } catch (e) { /* streak is optional */ } const st0 = settings(); if (!state.resume && st0.lastView && TAB_OF[st0.lastView]) { state.resume = st0.lastView; Object.assign(state.tab, st0.lastTab || {}); }
+  const done = async () => { state.lastActive = Date.now(); bioTried = false; try { await X.recordOpen(); } catch (e) { /* streak is optional */ } const st0 = settings(); if (!state.resume && st0.lastView && TAB_OF[st0.lastView]) { state.resume = st0.lastView; Object.assign(state.tab, st0.lastTab || {}); Object.assign(state, st0.lastCtx || {}); }
+    if (state.resume === 'form' && !state.formId) state.resume = state.topic ? 'tracker' : 'more'; // nothing to show: go to its topic page
     state.view = state.resume && TAB_OF[state.resume] ? state.resume : 'home'; render(); scheduleSync(800); };
   const tick = async () => {
     const w = await V.waitRemaining(); waiting = w > 0;
@@ -348,7 +364,7 @@ function viewForgot() {
 async function viewSettings() {
   const seq = renderSeq;
   const s = settings(); const theme = (await meta.get('theme')) || 'system'; const size = (await meta.get('textSize')) || 'system';
-  const lockType = await V.lockType(); const bioOn = await Bio.enrolled(); const bioOk = await Bio.supported();
+  const lockType = await V.lockType(); const bioOn = await Bio.enrolled(); const bioOk = await Bio.supported(); const bioMode = await Bio.mode();
   const row = (t, d, ...ctl) => h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, t), d ? h('div', { class: 'set-d' }, d) : null), h('div', { class: 'set-c' }, ...ctl));
   const sel = (opts, val, on, label) => h('select', { class: 'field', 'aria-label': label, onchange: ev => on(ev.target.value) }, ...opts.map(([v, l]) => h('option', { value: v, selected: String(v) === String(val) }, l)));
   const saved = () => toast('Saved');
@@ -360,15 +376,18 @@ async function viewSettings() {
       row('Who uses this device', 'Every change is tagged with this name.', sel([['', 'Not set'], ['Aravind', 'Aravind'], ['Madhu', 'Madhu']], s.deviceUser, v => saveSettings({ deviceUser: v }).then(saved), 'Who uses this device')),
       row('Device name', 'Shown in the tracker\'s Sync Log.', h('input', { class: 'field', id: 'devname', value: deviceName(), 'aria-label': 'Device name', onchange: e => saveSettings({ deviceName: e.target.value.trim() }).then(saved) }))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Lock')),
-      row('Unlock with fingerprint', bioOk ? (bioOn ? 'On for this device. Your PIN still works.' : 'Use the phone\'s fingerprint or face unlock instead of typing the PIN.') : 'Not available: this device has no fingerprint or face unlock set up for the browser.',
+      row('Unlock with fingerprint', bioOk ? (bioOn ? (bioMode === 'device' ? 'On for this device (Windows Hello with a key kept in this browser). Your PIN still works.' : 'On for this device. Your PIN still works.') : 'Use the phone\'s fingerprint or face unlock instead of typing the PIN.') : 'Not available: this device has no fingerprint or face unlock set up for the browser.',
         sw(bioOn, 'Unlock with fingerprint', async () => {
           if (bioOn) { await Bio.disable(); toast('Fingerprint unlock turned off'); return render(); }
           if (!bioOk) { toast('This device has no fingerprint or face unlock available for the app.', 'bad'); return; }
           askSecretThen('Turn on fingerprint', 'Enter your current ' + (lockType === 'pin' ? 'PIN' : 'passphrase') + ' once to link it to your fingerprint.', async v => {
-            const raw = await V.rawKeyFor(v); await Bio.enroll(raw, who() || deviceName()); toast('Fingerprint unlock is on'); go('settings');
+            const raw = await V.rawKeyFor(v);
+            try { await Bio.enroll(raw, who() || deviceName()); toast('Fingerprint unlock is on'); go('settings'); }
+            catch (e) { if (e.code !== 'NOPRF') throw e; deviceKeySheet(raw, e.credId); }
           });
         })),
-      row('Lock after switching apps', 'Come back within this time and it stays open.', sel([[30, '30 seconds'], [60, '1 minute'], [120, '2 minutes'], [300, '5 minutes']], s.graceSec, v => saveSettings({ graceSec: Number(v) }).then(saved), 'Grace time')),
+      row('Lock after switching apps', s.graceSec < 0 ? 'This device stays open when you switch apps. Closing the app (or the browser tab) still locks it.' : 'Come back within this time and it stays open.',
+        sel([[30, '30 seconds'], [60, '1 minute'], [120, '2 minutes'], [300, '5 minutes'], [-1, "Don't lock on this device"]], s.graceSec, v => saveSettings({ graceSec: Number(v) }).then(() => { saved(); render(); }), 'Grace time')),
       row('Lock when idle', 'While the app is open but not used.', sel([[1, '1 min'], [2, '2 min'], [5, '5 min'], [10, '10 min'], [15, '15 min'], [30, '30 min']], s.autoLockMin, v => saveSettings({ autoLockMin: Number(v) }).then(saved), 'Idle lock')),
       row(lockType === 'pin' ? '4-digit PIN' : 'Passphrase', 'Changing it turns fingerprint unlock off until you turn it on again.', h('button', { class: 'btn', onclick: () => go('changelock') }, 'Change'))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Appearance')),
@@ -540,7 +559,7 @@ async function render() {
   if (!V.isUnlocked()) { if (state.view === 'forgot') return viewForgot(); return viewLock(); }
   if (CONFIG.demo && !snap() && !demoLoading) { loadDemo(); }
   if (state.hidden === undefined) state.hidden = settings().hideOnOpen !== false;
-  F.setHidden(state.hidden);
+  F.setHidden(state.hidden); setCatIcons(settings().catIcons);
   switch (state.view) {
     case 'settings': return viewSettings();
     case 'reports': return shell(R.viewReports());
@@ -566,6 +585,9 @@ async function render() {
     case 'help': return shell(viewHelp());
     case 'signin': return shell(viewSignin());
     case 'epf': return shell(V12.viewEPF());
+    case 'caticons': return shell(C2.viewCatIcons());
+    case 'deposits': return shell(V13.viewDeposits());
+    case 'gratuity': return shell(V13.viewGratuity());
     case 'grouping': return shell(TV.viewGrouping());
     case 'more': return shell(TV.viewMoreTopics());
     case 'monthly': return shell(U.viewMonthly());

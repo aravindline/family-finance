@@ -4,7 +4,7 @@
 // addRow / setRow; the screens show them at once, marked "not synced" until the tracker has them.
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
-import { h, icon, toast, card, empty, tag, sheet, bar, seg, haptic , parseAmount, hasLongDigits, DIGITS_MSG } from './ui.js';
+import { h, icon, toast, card, empty, tag, sheet, bar, seg, haptic, parseAmount, hasLongDigits, DIGITS_MSG, catIcon, setCatIcons, CAT_ICONS } from './ui.js';
 import { uuid } from './crypto.js';
 
 const pad = n => String(n).padStart(2, '0');
@@ -291,6 +291,15 @@ export function goalIcon(name, size = 18) {
 function pickGoalIcon(name) {
   const close = sheet('Icon for ' + name, h('div', { class: 'icongrid' }, GOAL_ICONS.map(ic => h('button', { class: 'chip', 'aria-label': ic, onclick: async () => { await ctx.saveSettings({ goalIcons: Object.assign({}, ctx.settings().goalIcons, { [name]: ic }) }); close(); ctx.render(); } }, icon(ic, 22)))),
     h('p', { class: 'hint' }, 'Saved on this phone only.'));
+}
+// ---------------------------------------------------------------- Category icons (chosen on each phone, like goal icons)
+export function viewCatIcons() {
+  const s = ctx.snap() || {}; const inc = state.iconKind === 'income';
+  const names = inc ? (s.incomeCats || []).map(c => c.name) : (s.categories || []);
+  const pick = name => { const close = sheet('Icon for ' + name, h('div', { class: 'icongrid', id: 'caticongrid' }, CAT_ICONS.map(ic => h('button', { class: 'chip', 'aria-label': ic, 'data-icon': ic, onclick: async () => {
+    await ctx.saveSettings({ catIcons: Object.assign({}, ctx.settings().catIcons, { [name]: ic }) }); setCatIcons(ctx.settings().catIcons); close(); ctx.render(); } }, icon(ic, 22)))), h('p', { class: 'hint' }, 'Saved on this phone only.')); };
+  return { title: inc ? 'Income category icons' : 'Expense category icons', back: 'tracker', body: [card(null, null, names.length ? h('ul', { class: 'list', id: 'caticons' }, names.map(n => h('li', { class: 'li tap', 'data-cat': n, onclick: () => pick(n) }, catIcon(n), h('div', { class: 'body' }, h('div', { class: 'ttl' }, n)), h('span', { class: 'hint' }, 'Change')))) : empty('Sync with the tracker first.'),
+    h('p', { class: 'hint', style: { marginTop: '8px' } }, 'Tap a category to pick its icon. New categories you add get one here too.'))] };
 }
 export function forecastLine(g) {
   if (!g.forecast) return null;

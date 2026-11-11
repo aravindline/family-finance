@@ -13,13 +13,11 @@ const PEOPLE = ['Aravind', 'Madhu'];
 const DEFAULT_CATS = [{ name: 'Salary', goes: 'Take-home', subs: ['Monthly payout', 'Variable pay', 'Bonus', 'Others'] },
   { name: 'Investment / savings income', goes: 'Other income', subs: ['Dividends', 'Interest', 'Others'] },
   { name: 'Rewards', goes: 'Other income', subs: [] }, { name: 'Gifts', goes: 'Other income', subs: [] }, { name: 'Others', goes: 'Other income', subs: [] }];
-const pad = n => String(n).padStart(2, '0');
 const localISO = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const isoToday = () => localISO(new Date());
 const thisMonth = () => isoToday().slice(0, 7);
 const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
 const fyOf = ym => { const [y, m] = ym.split('-').map(Number); return m < 4 ? y - 1 : y; };
-const fyLabel = y => 'FY ' + y + '-' + String(y + 1).slice(2);
 const serialOf = iso => { const [y, m, d] = iso.split('-').map(Number); return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000); };
 const isoOfSerial = v => typeof v === 'number' ? new Date(Date.UTC(1899, 11, 30) + v * 86400000).toISOString().slice(0, 10) : String(v || '').slice(0, 10);
 const stamp = () => new Date().toISOString().replace('T', ' ').slice(0, 19);

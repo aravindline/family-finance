@@ -19,6 +19,17 @@ function findRow(g, col, test, from = 1, to = 2000) {
 const starts = p => s => s.trim().toLowerCase().startsWith(p.toLowerCase());
 function tbl(wb, name) { try { return wb.tables[name] ? wb.tableObjects(name) : []; } catch (e) { return []; } }
 
+// the tracker's grouping rules, read once per sync (typed cells, so always current)
+function typeRules(wb) {
+  const tr = sheetGrid(wb, 'Type Rules'), im = sheetGrid(wb, 'Investment Map');
+  const exact = new Map(), kw = [], cls = {};
+  if (tr) { for (let r = 5; r <= 204; r++) { const e = str(at(tr, r, C('E'))).trim(), t = str(at(tr, r, C('F'))).trim(); if (e && t) exact.set(e.toUpperCase(), t); }
+    for (let r = 5; r <= 73; r++) { const k = str(at(tr, r, 1)).trim(), t = str(at(tr, r, 2)).trim(); if (k && t) kw.push([k.toUpperCase(), t]); } }
+  if (im) for (let r = 18; r <= 80; r++) { const t = str(at(im, r, 1)).trim(), c = str(at(im, r, 2)).trim(); if (t && c) cls[t] = c; }
+  const typeOf = name => { const u = String(name || '').toUpperCase(); if (exact.has(u)) return exact.get(u); for (const [k, t] of kw) if (u.includes(k)) return t; return 'Stock'; };
+  return { typeOf, cls };
+}
+
 export function extractSnapshot(wb) {
   const out = { v: 2 };
   out.fileModified = wb.modified();
@@ -138,26 +149,29 @@ export function extractSnapshot(wb) {
   out.health = tbl(wb, 'tblHealth').filter(r => r['Check']).map(r => ({ n: num(r['#']), area: str(r['Area']), check: str(r['Check']), status: str(r['Status']), detail: str(r['Detail']).replace(/(as (?:of|on) )?(30-Dec-1899|00-Jan-1900)/g, (m, a) => (a ? a.trim() + ': ' : '') + 'not set'), fix: str(r['Where to fix']) }));
 
   // ---- holdings
-  out.holdings = tbl(wb, 'tblHoldings').filter(r => r['Symbol / Fund']).map(r => ({ owner: str(r['Owner']), account: str(r['Account']), name: str(r['Symbol / Fund']), type: str(r['Asset type']), cls: str(r['Class']), qty: num(r['Qty']), invested: num(r['Invested (₹)']), current: num(r['Current value (₹)']), pnl: num(r['P&L (₹)']), ret: num(r['Return %']), weight: num(r['Weight %']) }));
-  // Tracker v25+: Kite rows are typed values (one per stock per account), so holdings are worked out from them directly and
-  // are right straight after a sync; asset type and class still come from Excel's last calculation (blank for a new symbol).
+  // Asset type and class are worked out here with the tracker's own rules (Type Rules: exact symbol first, then a keyword in
+  // the name, else "Stock"; Investment Map: type -> class), so a new symbol is grouped right straight after a paste.
+  // Tracker v25+: Kite rows are typed values (one per stock per account), so the big Holdings sheet is not read at all.
+  const rules = typeRules(wb); out.typeClass = rules.cls;
   { const pg = sheetGrid(wb, 'Paste Holdings');
     if (pg && /^account code/i.test(str(at(pg, 12, 1)).trim())) {
       const own = {}; for (let r = 6; r <= 11; r++) { const c = at(pg, r, 1); if (c) own[str(c)] = str(at(pg, r, 2)); }
-      const kind = {}; for (const x of out.holdings) if (x.name && x.type && !kind[x.name]) kind[x.name] = { type: x.type, cls: x.cls };
       const rows = [];
       for (let r = 13; r <= 1012; r++) {
         const code = at(pg, r, 1), sym = at(pg, r, 2), qty = num(at(pg, r, 3)); if (!code || !sym || qty === null) continue;
         const avg = num(at(pg, r, 4)) || 0, price = num(at(pg, r, 5)) ?? avg; const invested = qty * avg, current = qty * price;
-        const k = kind[str(sym).trim()] || {};
-        rows.push({ owner: own[str(code)] || '', account: str(code), name: str(sym).trim(), type: k.type || '', cls: k.cls || '', qty, invested, current, pnl: current - invested, ret: invested ? (current - invested) / invested : 0, weight: 0 });
+        const name = str(sym).trim(); const type = rules.typeOf(name);
+        rows.push({ owner: own[str(code)] || '', account: str(code), name, type, cls: rules.cls[type] || 'Other', qty, avg, price, invested, current, pnl: current - invested, ret: invested ? (current - invested) / invested : 0, weight: 0 });
       }
       const tot = rows.reduce((t, x) => t + x.current, 0); for (const x of rows) x.weight = tot ? x.current / tot : 0;
       out.holdings = rows; out.kiteTidy = true;
-    } }
+    } else out.holdings = tbl(wb, 'tblHoldings').filter(r => r['Symbol / Fund']).map(r => ({ owner: str(r['Owner']), account: str(r['Account']), name: str(r['Symbol / Fund']), type: str(r['Asset type']), cls: str(r['Class']), qty: num(r['Qty']), invested: num(r['Invested (₹)']), current: num(r['Current value (₹)']), pnl: num(r['P&L (₹)']), ret: num(r['Return %']), weight: num(r['Weight %']) })); }
   out.otherHoldings = tbl(wb, 'tblOtherHoldings').filter(r => r['Holding name'] && (num(r['Current (₹)']) || num(r['Value ₹ (if no units)']))).map(r => ({ owner: str(r['Owner']), platform: str(r['Platform']), name: str(r['Holding name']), type: str(r['Asset type']), cls: str(r['Class (auto)']), invested: num(r['Invested (₹)']), current: num(r['Current (₹)']) ?? num(r['Value ₹ (if no units)']), pnl: num(r['P&L (₹)']), ret: num(r['Return']), linked: /^Linked/i.test(str(r['Notes'])) || undefined }));
   { const ig = sheetGrid(wb, 'Intl Holdings'); out.intlPlatform = str(at(ig, 4, 3)) || 'INDmoney'; out.intlOwner = str(at(ig, 5, 3)) || ''; }
-  out.intl = tbl(wb, 'tblIntl').filter(r => r['Stock symbol']).map(r => ({ type: 'US stocks', platform: out.intlPlatform, owner: str(r['Owner (blank = default)']) || out.intlOwner, name: str(r['Stock symbol']), invested: num(r['Invested (₹)']), current: num(r['Current (₹)']), pnl: num(r['P&L (₹)']), ret: num(r['Return']) }));
+  // v29: broker (S) and currency (U) for each row sit just right of the table
+  { const ig = sheetGrid(wb, 'Intl Holdings');
+    out.intl = tbl(wb, 'tblIntl').filter(r => r['Stock symbol']).map(r => ({ type: 'US stocks', platform: str(at(ig, r._row, C('S'))) || out.intlPlatform, broker: str(at(ig, r._row, C('S'))) || out.intlPlatform, currency: str(at(ig, r._row, C('U'))) || 'USD', row: r._row,
+      owner: str(r['Owner (blank = default)']) || out.intlOwner, name: str(r['Stock symbol']), qty: num(r['Quantity']), price: num(r['Price used ($)']), invested: num(r['Invested (₹)']), current: num(r['Current (₹)']), pnl: num(r['P&L (₹)']), ret: num(r['Return']) })); }
   out.otherAssets = tbl(wb, 'tblOther').filter(r => r['Item'] && num(r['Family (₹)'])).map(r => ({ name: str(r['Item']), where: str(r['Bank / institution']), type: str(r['Type']), aravind: num(r['Aravind (₹)']), madhu: num(r['Madhu (₹)']), family: num(r['Family (₹)']), cls: str(r['Class (auto)']) }));
   out.loans = tbl(wb, 'tblLoans').filter(r => r['Loan'] && num(r['Total (₹)'])).map(r => ({ name: str(r['Loan']), lender: str(r['Lender']), aravind: num(r['Aravind outstanding (₹)']), madhu: num(r['Madhu outstanding (₹)']), total: num(r['Total (₹)']), rate: num(r['Interest %']), emi: num(r['EMI (₹)']), closes: iso(r['Closes (month)']), nextEmi: iso(r['Next EMI month']), emisLeft: num(r['EMIs left (auto)']), lastEmi: iso(r['Last EMI (auto)']), interestLeft: num(r['Interest still to pay (₹, auto)']) }));
 
@@ -180,7 +194,7 @@ export function extractSnapshot(wb) {
       const row = { row: r, month: iso(mon), cols: {} }; for (const [c, k] of Object.entries(MCOL)) row.cols[k] = { ref: c + r, v: m.get(C(c)) ?? null }; inputs.monthly.push(row);
     }
   } catch (e) { /* table missing: the wizard explains */ }
-  const rowsOf = (name, map) => { try { const t = wb.table(name); return wb.tableObjects(name).map(o => ({ row: o._row, ...Object.fromEntries(Object.entries(map).map(([k, col]) => [k, { ref: col + o._row, v: o[t.cols[C(col) - t.c1]] ?? null, f: wb.isFormula(t.sheet, col + o._row) || undefined }])) })); } catch (e) { return []; } };
+  const rowsOf = (name, map) => { try { const t = wb.table(name); const fx = wb.formulaRefs(t.sheet); return wb.tableObjects(name).map(o => ({ row: o._row, ...Object.fromEntries(Object.entries(map).map(([k, col]) => [k, { ref: col + o._row, v: o[t.cols[C(col) - t.c1]] ?? null, f: fx.has(col + o._row) || undefined }])) })); } catch (e) { return []; } };
   inputs.otherAssets = rowsOf('tblOther', { name: 'A', where: 'B', type: 'C', aravind: 'D', madhu: 'E' }).filter(r => r.name.v);
   inputs.loans = rowsOf('tblLoans', { name: 'A', lender: 'B', aravind: 'C', madhu: 'D', emi: 'G', nextEmi: 'J' }).filter(r => r.name.v);
   inputs.otherHoldings = rowsOf('tblOtherHoldings', { owner: 'A', platform: 'B', name: 'C', type: 'D', currency: 'F', units: 'G', avg: 'H', price: 'I', invested: 'J', value: 'K' });
@@ -217,6 +231,34 @@ export function extractSnapshot(wb) {
   { const yrs = str(at(d, 7, C('B'))); const m = yrs.match(/^([\d.]+) years/); out.nwYears = m ? Number(m[1]) : null; }
   { const st = sheetGrid(wb, 'Settings'); const live = findRow(st, 2, s => /living, per month/i.test(s), 1, 120); const trips = findRow(st, 2, s => /trips, per month/i.test(s), 1, 120);
     out.retireMonthly = (live ? num(at(st, live, 3)) || 0 : 0) + (trips ? num(at(st, trips, 3)) || 0 : 0) || null; }
+
+  // ---- v29: FD / RD register, Month Close, gratuity, Coast FIRE, Home targets, plan ages straight from Settings
+  out.v29 = !!(wb.tables && wb.tables.tblDeposits && wb.tables.tblMonthClose);
+  out.deposits = tbl(wb, 'tblDeposits').filter(r => str(r['Deposit ID']) && str(r['Status']) !== 'Deleted').map(r => ({ id: str(r['Deposit ID']), name: str(r['Name']), bank: str(r['Bank']), whose: str(r['Whose']), kind: str(r['Kind']) || 'FD',
+    amount: num(r['Amount (₹)']), rate: num(r['Rate %']), start: iso(r['Start']), maturity: iso(r['Maturity']), paysInto: str(r['Pays into']), status: str(r['Status']) || 'Active', closedOn: iso(r['Closed on']), received: num(r['Amount received (₹)']),
+    notes: str(r['Notes']), by: str(r['Entered by']), row: r._row }));
+  const MCK = { income: 'Income (₹)', saved: 'Saved (₹)', invested: 'Invested (₹)', bank: 'Bank & cash (₹)', fdrd: 'FD / RD (₹)', cInd: 'Cost: Indian equity (₹)', cEqf: 'Cost: equity funds (₹)', cDebt: 'Cost: debt & arbitrage (₹)',
+    cBonds: 'Cost: bonds (₹)', cGold: 'Cost: gold (₹)', cIntl: 'Cost: international (₹)', nw: 'Net worth (₹)', loans: 'Loans (₹)' };
+  const MCLS = ['Equity', 'International equity', 'Gold & silver', 'Debt', 'REITs & InvITs', 'Retirement', 'Cash & deposits', 'Other'];
+  out.monthClose = tbl(wb, 'tblMonthClose').filter(r => r['Month'] && str(r['Person'])).map(r => { const o = { id: str(r['Close ID']), month: iso(r['Month']).slice(0, 7), person: str(r['Person']), row: r._row, by: str(r['Saved by']), cls: {} };
+    for (const [k, h] of Object.entries(MCK)) o[k] = num(r[h]); for (const c of MCLS) o.cls[c] = num(r[c + ' (₹)']); return o; });
+  { const gg = sheetGrid(wb, 'Gratuity'); out.gratuity = null;
+    if (gg) { const lab = {}; for (let r = 6; r <= 30; r++) { const l = str(at(gg, r, 1)); if (l) lab[l] = r; }
+      const pick = (c, re) => { const k = Object.keys(lab).find(x => re.test(x)); return k ? at(gg, lab[k], C(c)) : null; };
+      out.gratuity = {}; for (const [c, p] of [['C', 'Aravind'], ['D', 'Madhu']]) out.gratuity[p] = { company: str(pick(c, /^Company/)), joined: iso(pick(c, /^Joining date/)), basic: num(pick(c, /^Monthly basic/)), total: num(pick(c, /^Monthly total pay/)), fixedTerm: str(pick(c, /^Fixed-term/)) === 'Yes' }; } }
+  { const fp = sheetGrid(wb, 'FIRE Plan'); const cr = findRow(fp, C('I'), starts('Coast FIRE year'), 1, 60); out.coast = cr ? { year: at(fp, cr, C('J')), age: at(fp, cr + 1, C('J')) } : null; }
+  { const st = sheetGrid(wb, 'Settings'); const byLabel = {}; if (st) for (let r = 7; r <= 120; r++) { const l = str(at(st, r, 2)); if (l) byLabel[l] = { ref: 'C' + r, v: at(st, r, 3) }; }
+    const g = l => byLabel[l] || null; out.settingCells = byLabel;
+    const dob = num(g("Aravind's date of birth") && g("Aravind's date of birth").v);
+    out.plan = { dobYear: dob ? Number(serialToISO(dob).slice(0, 4)) : null, dob: dob ? serialToISO(dob) : null, retireA: num((g('Aravind stops working at age') || {}).v), retireM: num((g('Madhu stops working at age') || {}).v),
+      madhuBorn: num((g("Madhu's birth year (Dec)") || {}).v), until: num((g("Plan until Aravind's age") || {}).v), start: num((g('Plan starts (year)') || {}).v) };
+    // the FIRE year follows Settings straight away (Excel's own figures update when it next recalculates)
+    if (out.plan.dobYear && out.plan.retireA) { out.fire.fireAge = out.plan.retireA; out.fire.fireYear = out.plan.dobYear + out.plan.retireA; out.fire.fireDate = (out.fire.fireYear) + out.plan.dob.slice(4, 10);
+      out.fire.yearsToGo = Math.max(0, (Date.parse(out.fire.fireDate) - Date.now()) / (365.25 * 86400000)); }
+    const T = (l, d = null) => { const x = g(l); return x ? { ref: x.ref, v: num(x.v), label: l } : (d ? { ref: null, v: d, label: l } : null); };
+    out.targets = { invest: { Family: T('Target per month (₹)'), Aravind: T('Invest target per month: Aravind (₹)'), Madhu: T('Invest target per month: Madhu (₹)') },
+      savingsRate: { Family: T('Savings-rate target: Family'), Aravind: T('Savings-rate target: Aravind'), Madhu: T('Savings-rate target: Madhu') },
+      mix: Object.fromEntries(['Aravind', 'Madhu'].map(p => [p, { Growth: T('Mix target ' + p + ': Growth'), Safety: T('Mix target ' + p + ': Safety'), Gold: T('Mix target ' + p + ': Gold') }])) }; }
 
   // ---- drop 1: every input block the app can fill (see forms.js)
   try { out.forms = extractForms(wb); } catch (e) { out.forms = {}; }

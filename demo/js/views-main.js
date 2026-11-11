@@ -1,7 +1,7 @@
 // Home (dashboard), Spend and Add expense.
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
-import { h, icon, toast, haptic, sheet, miniSpark, catIcon, catColor, seg, tag, bar, card, moreBtn, empty, statusKind, statusIcon, trendChart, donut, ring, SERIES } from './ui.js';
+import { h, icon, toast, haptic, sheet, catIcon, catColor, seg, tag, bar, card, moreBtn, empty, ring } from './ui.js';
 import { uuid } from './crypto.js';
 import { CONFIG } from './config.js';
 import { streakChip, activity, activityList, dueItems, approve, skip } from './views-extra.js';
@@ -10,19 +10,13 @@ import * as C2 from './views-c2.js';
 import { addSwitch, forPill, incomeList, viewIncome, micButton, amountRow, voiceSummary, parseVoice } from './views-income.js';
 import { swipeable, parseAmount, hasLongDigits, DIGITS_MSG, confirmAmount } from './ui.js';
 import { handoverItem } from './views-handover.js';
+import { homeTiles } from './views-v13.js';
 
 const PEOPLE = ['Family', 'Aravind', 'Madhu'];
 const key = p => (p === 'Family' ? 'family' : p.toLowerCase());
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const isoToday = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 
-// one person's latest month with income: income typed in the app vs what was spent for that person
-function personLeft(s, p) {
-  const inc = {}; for (const e of s.income || []) if (e.status !== 'Deleted' && e.person === p) inc[e.month] = (inc[e.month] || 0) + (Number(e.amount) || 0);
-  const now = new Date().toISOString().slice(0, 7); const months = Object.keys(inc).filter(m => m < now && inc[m] > 0).sort(); const m = months.pop(); if (!m) return null;
-  const spent = ctx.entriesView().filter(e => e.status !== 'Deleted' && e.by === p && String(e.date).startsWith(m)).reduce((t, e) => t + (Number(e.amount) || 0), 0);
-  return { month: m + '-01', income: inc[m], spent, rate: (inc[m] - spent) / inc[m] };
-}
 export function personSeg(onChange) { return seg(PEOPLE, state.person, p => { state.person = p; (onChange || ctx.render)(); }, 'Person'); }
 export function asOfLine(s) {
   return h('p', { class: 'asof' }, s.sample ? tag('SAMPLE DATA', 'sample') : null, ' As of last sync' + (s.asOf ? ' · tracker saved ' + F.date(s.asOf) : ''),
@@ -101,47 +95,51 @@ export function viewHome() {
       h('div', {}, h('div', { class: 't-l' }, 'Spent'), h('div', { class: 't-v num', id: 'homespent' }, F.inr(spent)), h('div', { class: 't-s' }, budget ? 'of ' + F.inr(budget) + ' budget' : (p === 'Family' ? 'No budget set' : 'Logged for ' + p))),
       h('div', {}, h('div', { class: 't-l' }, 'Income received'), h('div', { class: 't-v num', id: 'homeincome' }, F.inr(income)), h('div', { class: 't-s' }, income ? 'this month' : 'None added yet')),
       h('div', {}, h('div', { class: 't-l' }, 'Balance'), h('div', { class: 't-v num', id: 'homeleft' }, income ? F.inr(left) : '–'), h('div', { class: 't-s' }, income ? F.pct(left / income, 0) + ' of income' : 'Add income to see this'))),
-    budget ? bar(frac, spentKind) : null);
-  const addBtns = h('div', { class: 'btns addrow', id: 'homeadd' },
-    h('button', { class: 'btn primary', id: 'homeaddexp', onclick: () => { state.editing = null; ctx.go('addexpense'); } }, icon('plus', 18), 'Add expense'),
-    h('button', { class: 'btn', id: 'homeaddinc', onclick: () => { state.editing = null; ctx.go('addincome'); } }, icon('plus', 18), 'Add income'));
+    budget ? bar(frac, spentKind) : null, paceLine(ym, p));
   const recent = activity(2);
-  const recentCard = card('Recent entries', moreBtn('All', () => ctx.go('activity')), recent.length ? activityList(recent) : empty('Nothing logged yet.', 'Add expense', () => ctx.go('addexpense')));
-  return { title: 'Home', body: [h('div', { class: 'toolbar' }, personSeg()), monthCard, addBtns, todoCard(s), recapHome(ym, p), paceCard(ym, p), budgetsNearCard(ym, p), recentCard, streakChip()] };
+  const recentCard = card('Recent entries', moreBtn('All', () => ctx.go('activity')), recent.length ? activityList(recent) : empty('Nothing logged yet. Tap + below to add an expense or income.'));
+  return { title: 'Home', body: [h('div', { class: 'toolbar' }, personSeg()), monthCard, homeTiles(s, p), todoCard(s), recapHome(ym, p), budgetsNearCard(ym, p), recentCard, streakChip()] };
 }
 
-// ---- Home tiles (0.12.0): recap one tap away, spending pace, budgets near their limit
+// ---- Home (0.13.0, layout approved 11 Nov 2026): "<month> so far" with the spending pace in one line, the 2 x 2 tiles,
+// To do, Recap, budgets at 80% or more, recent entries
+// spent so far this month against the same days of last month, as one line inside the month card
+function paceLine(ym, p) {
+  const who = p === 'Family' ? 'All' : p; const day = new Date().getDate(); const lm = addMonths(ym, -1);
+  const now = sum(monthEntries(ym, who), e => e.amount); const lastSame = sum(monthEntries(lm, who).filter(e => Number((e.date || '').slice(8, 10)) <= day), e => e.amount);
+  if (!now || !lastSame) return null;
+  const diff = (now - lastSame) / lastSame;
+  return h('p', { class: 'hint paceline', id: 'homepace' }, 'Pace: ', h('span', { class: 'num strong ' + (diff > 0.1 ? 'loss' : 'gain') }, (diff > 0 ? '+' : '') + F.pct(diff, 0)), ' vs ' + F.MONTHS[Number(lm.slice(5)) - 1] + ', day 1 to ' + day);
+}
+// Recap: "<month> so far" as soon as this month has entries; last month's recap when there is one
 function recapHome(ym, p) {
-  const whoF = p === 'Family' ? 'All' : p; const ins = spendInsights(ym, whoF); const lm = recapMonth();
-  const rows = [];
-  rows.push(h('li', { class: 'li tap', id: 'homerecapnow', onclick: () => openStory([...ins.map((x, i) => ({ k: 'Insight ' + (i + 1) + ' of ' + ins.length, sub: F.maskText(x.text) })), { k: F.monthLabel(ym, true), big: 'That\'s all', sub: 'Insights compare this month with the months before.' }], 'This month so far', 'insightstory', 'Close') },
-    h('span', { class: 'lead', 'aria-hidden': 'true' }, icon('chart', 16)), h('div', { class: 'body' }, h('div', { class: 'ttl' }, F.MONTHS[new Date().getMonth()] + ' so far'), h('div', { class: 'sub' }, ins.length ? F.maskText(ins[0].text) : 'No insights yet this month')), icon('right', 16)));
+  const whoF = p === 'Family' ? 'All' : p; const mine = monthEntries(ym, whoF); const lm = recapMonth(); const rows = [];
+  if (mine.length) {
+    const tot = sum(mine, e => e.amount); const cats = Object.entries(byCategory(mine)).sort((x, y) => y[1] - x[1]);
+    const big = mine.slice().sort((x, y) => Number(y.amount) - Number(x.amount))[0];
+    const budget = p === 'Family' ? sum(Object.values(C2.availableBudgets(ym)), x => x) : 0;
+    const ins = spendInsights(ym, whoF); const mon = F.MONTHS[Number(ym.slice(5)) - 1];
+    const sub = ['Top: ' + cats[0][0] + ' ' + F.inr(cats[0][1]), 'biggest ' + F.inr(Number(big.amount)), budget ? F.pct(tot / budget, 0) + ' of budget' : null].filter(Boolean).join(' · ');
+    const slides = [{ k: mon + ' so far', big: F.inr(tot), sub: mine.length + ' entr' + (mine.length === 1 ? 'y' : 'ies') + (budget ? ' · ' + F.pct(tot / budget, 0) + ' of the month\'s budget' : '') },
+      { k: 'By category', sub: F.maskText(cats.slice(0, 4).map(([c, v]) => c + ' ' + F.inr(v)).join(' · ')) },
+      { k: 'Biggest spend', big: F.inr(Number(big.amount)), sub: [big.category + (big.sub ? ' · ' + big.sub : ''), F.date(big.date)].filter(Boolean).join(' · ') },
+      ...ins.map((x, i) => ({ k: 'Insight ' + (i + 1) + ' of ' + ins.length, sub: F.maskText(x.text) }))];
+    rows.push(h('li', { class: 'li tap', id: 'homerecapnow', onclick: () => openStory(slides, mon + ' so far', 'insightstory', 'Close') },
+      h('span', { class: 'lead', 'aria-hidden': 'true' }, icon('chart', 16)), h('div', { class: 'body' }, h('div', { class: 'ttl' }, mon + ' so far'), h('div', { class: 'sub' }, F.maskText(sub))), icon('right', 16)));
+  }
   if (hasRecap(lm)) rows.push(h('li', { class: 'li tap', id: 'homerecaplast', onclick: () => { openRecap(lm); ctx.render(); } },
     h('span', { class: 'lead', 'aria-hidden': 'true' }, icon('play', 16)), h('div', { class: 'body' }, h('div', { class: 'ttl' }, F.monthLabel(lm, true) + ' recap'), h('div', { class: 'sub' }, 'Last month in a few cards')), icon('right', 16)));
-  if (!ins.length && rows.length === 1) return null;
+  if (!rows.length) return null;
   return h('section', { class: 'card', id: 'homerecap' }, h('div', { class: 'card-h' }, h('h2', {}, 'Recap')), h('ul', { class: 'list' }, rows));
 }
-// spent so far this month against the same days of last month
-function paceCard(ym, p) {
-  const who = p === 'Family' ? 'All' : p; const day = new Date().getDate(); const lm = addMonths(ym, -1);
-  const now = sum(monthEntries(ym, who), e => e.amount);
-  const lastSame = sum(monthEntries(lm, who).filter(e => Number((e.date || '').slice(8, 10)) <= day), e => e.amount);
-  const lastAll = sum(monthEntries(lm, who), e => e.amount);
-  if (!now && !lastAll) return null;
-  const max = Math.max(now, lastSame, 1); const diff = lastSame ? (now - lastSame) / lastSame : null;
-  const line = (lbl, v, cls) => h('div', { class: 'pace-row' }, h('div', { class: 'row-between' }, h('span', { class: 'hint' }, lbl), h('span', { class: 'num strong' }, F.inr(v))), bar(v / max, cls));
-  return h('section', { class: 'card', id: 'homepace' }, h('div', { class: 'card-h' }, h('h2', {}, 'Spending pace'), diff === null ? null : tag((diff > 0 ? '+' : '') + F.pct(diff, 0) + ' vs last month', diff > 0.1 ? 'warn' : 'good')),
-    line('This month, day 1 to ' + day, now, diff !== null && diff > 0.1 ? 'warn' : 'good'), line(F.monthLabel(lm, true) + ', day 1 to ' + day, lastSame, ''),
-    h('p', { class: 'hint', style: { marginTop: '6px' } }, F.monthLabel(lm, true) + ' in full: ' + F.inr(lastAll)));
-}
-// the 3 category budgets closest to (or over) their limit
+// category budgets at 80% of their limit or more (Family view)
 function budgetsNearCard(ym, p) {
   if (p !== 'Family') return null;
-  const bd = C2.budgetsFor(ym); const all = monthEntries(ym, 'All'); const byCat = {}; for (const e of all) byCat[e.category] = (byCat[e.category] || 0) + Number(e.amount);
-  const rows = Object.entries(bd).map(([c, x]) => ({ c, b: x.avail, sp: byCat[c] || 0 })).filter(x => x.b > 0 && x.sp > 0).map(x => ({ ...x, f: x.sp / x.b })).sort((a, b) => b.f - a.f).slice(0, 3);
+  const bd = C2.budgetsFor(ym); const byCat = byCategory(monthEntries(ym, 'All'));
+  const rows = Object.entries(bd).map(([c, x]) => ({ c, b: x.avail, sp: byCat[c] || 0 })).filter(x => x.b > 0 && x.sp >= 0.8 * x.b).map(x => ({ ...x, f: x.sp / x.b })).sort((a, b) => b.f - a.f);
   if (!rows.length) return null;
-  return h('section', { class: 'card', id: 'homebudgets' }, h('div', { class: 'card-h' }, h('h2', {}, 'Budgets near their limit'), h('button', { class: 'more', onclick: () => C2.budgetEditor() }, 'Budgets', icon('right', 16))),
-    rows.map(x => { const k = x.f > 1 ? 'crit' : x.f > 0.85 ? 'warn' : 'good';
+  return h('section', { class: 'card', id: 'homebudgets' }, h('div', { class: 'card-h' }, h('h2', {}, 'Budgets at 80% or more'), h('button', { class: 'more', onclick: () => C2.budgetEditor() }, 'Budgets', icon('right', 16))),
+    rows.map(x => { const k = x.f > 1 ? 'crit' : 'warn';
       return h('div', { class: 'hbar' }, h('span', { class: 'ttl' }, x.c, x.f > 1 ? [' ', tag('Over', 'crit')] : null), h('span', { class: 'num' }, F.inr(x.sp), h('span', { class: 'faint' }, ' / ' + F.inr(x.b))), bar(x.f, k)); }));
 }
 
