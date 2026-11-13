@@ -4,7 +4,7 @@
 // addRow / setRow; the screens show them at once, marked "not synced" until the tracker has them.
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
-import { h, icon, toast, card, empty, tag, sheet, bar, seg, haptic, parseAmount, hasLongDigits, DIGITS_MSG, catIcon, setCatIcons, CAT_ICONS } from './ui.js';
+import { h, icon, toast, card, empty, tag, sheet, bar, seg, haptic, parseAmount, catIcon, setCatIcons, CAT_ICONS } from './ui.js';
 import { uuid } from './crypto.js';
 
 const pad = n => String(n).padStart(2, '0');
@@ -76,7 +76,7 @@ function eventForm() {
   const budget = h('input', { class: 'field', id: 'evbudget', inputmode: 'decimal', placeholder: 'Optional', 'aria-label': 'Budget' });
   const close = sheet('New event', field('Name', name), field('Start', start), field('End', end, 'Optional'), field('Budget (₹)', budget, 'Optional'), h('div', { class: 'spacer' }),
     h('button', { class: 'btn primary wide', id: 'saveevent', onclick: async () => {
-      const n = name.value.trim(); if (!n) return toast('Give the event a name', 'bad'); if (hasLongDigits(n)) return toast(DIGITS_MSG, 'bad');
+      const n = name.value.trim(); if (!n) return toast('Give the event a name', 'bad');
       if (events().some(e => e.name.toLowerCase() === n.toLowerCase())) return toast('There is already an event with that name', 'bad');
       if (!need21()) return;
       const b = budget.value.trim() ? parseAmount(budget.value) : null; if (Number.isNaN(b)) return toast('Type the budget as a number', 'bad');
@@ -130,7 +130,7 @@ function loanForm() {
   const close = sheet('Record money lent', field('Lent by', who), field('To', borrower), field('Amount (₹)', amount), field('Date', date), h('div', { class: 'label-sm' }, 'Follow up on'), fuBox, field('Note', notes), h('div', { class: 'spacer' }),
     h('button', { class: 'btn primary wide', id: 'saveloan', onclick: async () => {
       const a = parseAmount(amount.value); const b = borrower.value.trim();
-      if (!b) return toast('Who did you lend it to?', 'bad'); if (!(a > 0)) return toast('Type the amount', 'bad'); if (hasLongDigits(b, notes.value)) return toast(DIGITS_MSG, 'bad'); if (!need21()) return;
+      if (!b) return toast('Who did you lend it to?', 'bad'); if (!(a > 0)) return toast('Type the amount', 'bad'); if (!need21()) return;
       await addRow('tblLent', 'Loan ID', { 'Loan ID': 'L-' + uuid().slice(0, 8), 'Lent by': by, Borrower: b, 'Date lent': serial(date.value || today()), 'Amount (₹)': a, 'Follow up on': fu ? serial(fu) : null, Notes: notes.value.trim() || null, Status: 'Active' }, 'loan', by + ' lent ₹' + a + ' to ' + b);
       close(); toast('Recorded ' + F.inr(a) + ' lent to ' + b); ctx.render();
     } }, 'Save'));
@@ -228,7 +228,7 @@ function noteForm(chart, months) {
   const txt = h('input', { class: 'field', id: 'notetext', maxlength: 80, placeholder: 'e.g. bonus month, car service', 'aria-label': 'Note' });
   const close = sheet('Note on the chart', field('Month', sel), field('Note', txt), h('div', { class: 'spacer' }),
     h('button', { class: 'btn primary wide', id: 'savenote', onclick: async () => {
-      const t = txt.value.trim(); if (!t) return toast('Type the note', 'bad'); if (hasLongDigits(t)) return toast(DIGITS_MSG, 'bad'); if (!need21()) return;
+      const t = txt.value.trim(); if (!t) return toast('Type the note', 'bad'); if (!need21()) return;
       await addRow('tblChartNotes', 'Note ID', { 'Note ID': 'N-' + uuid().slice(0, 8), Chart: chart, Month: serial(sel.value + '-01'), Note: t, 'Added by': ctx.who(), 'Added at': stamp(), Status: 'Active' }, 'chart note', chart + ' · ' + sel.value + ': ' + t);
       close(); toast('Note added for both of you'); ctx.render();
     } }, 'Save'));
@@ -243,21 +243,6 @@ export async function recordHistory(snap) {
   const classes = (snap.classes || []).map(c => ({ name: c.name, aravind: c.aravind || 0, madhu: c.madhu || 0, family: c.family || 0 }));
   await ctx.V.put('nwhist', ym, { ym, at: new Date().toISOString(), nw: snap.netWorth || {}, classes, accounts });
 }
-export function whatMovedCard(person) {
-  const hist = ctx.V.all('nwhist').sort((a, b) => a.ym.localeCompare(b.ym)); if (hist.length < 2) return null;
-  const cur = hist[hist.length - 1], prev = hist[hist.length - 2]; const k = person === 'Family' ? 'family' : person.toLowerCase();
-  const diff = (a, b) => (a && a[k] || 0) - (b && b[k] || 0);
-  const moves = [];
-  for (const c of cur.classes) { const d = diff(c, prev.classes.find(x => x.name === c.name)); if (Math.abs(d) >= 1000) moves.push({ name: c.name, d, kind: 'class' }); }
-  for (const a of cur.accounts) { const d = diff(a, prev.accounts.find(x => x.name === a.name)); if (Math.abs(d) >= 1000) moves.push({ name: a.name, d, kind: 'account' }); }
-  const nwd = diff(cur.nw, prev.nw);
-  const top = moves.sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 5);
-  return card('What moved', null, h('p', { class: 'hint' }, F.monthLabel(prev.ym, true) + ' to ' + F.monthLabel(cur.ym, true) + ': net worth ' + (nwd >= 0 ? 'up ' : 'down ') + F.inrShort(Math.abs(nwd))),
-    top.length ? h('ul', { class: 'list', id: 'whatmoved' }, top.map(m => h('li', { class: 'li' }, h('span', { class: 'lead', 'aria-hidden': 'true' }, icon(m.d >= 0 ? 'up' : 'down', 16)),
-      h('div', { class: 'body' }, h('div', { class: 'ttl' }, m.name), h('div', { class: 'sub' }, m.kind === 'class' ? 'Asset class' : 'Account')), h('div', { class: 'end num ' + (m.d >= 0 ? 'gain' : 'loss') }, (m.d >= 0 ? '+' : '−') + F.inrShort(Math.abs(m.d)))))) : h('p', { class: 'hint' }, 'No big moves.'),
-    h('p', { class: 'hint faint' }, 'Compared from the balances this phone saw at each sync.'));
-}
-
 // ---------------------------------------------------------------- Safety card
 export function safetyCard() {
   const s = ctx.snap(); if (!s) return null;
@@ -336,7 +321,7 @@ export function viewSuggest() {
   return { title: 'Suggestion box', back: 'more', body: [
     card('New suggestion', null, field('About', area), field('Priority', prBox), text, h('div', { class: 'spacer' }),
       h('button', { class: 'btn primary wide', id: 'sendsg', onclick: async () => {
-        const t = text.value.trim(); if (!t) return toast('Type your suggestion', 'bad'); if (hasLongDigits(t)) return toast(DIGITS_MSG, 'bad');
+        const t = text.value.trim(); if (!t) return toast('Type your suggestion', 'bad');
         const rec = { id: 'S-' + uuid().slice(0, 8), at: new Date().toISOString(), area: area.value, text: t, priority: pr, by: ctx.who() || 'Aravind', sent: false };
         await ctx.V.put('suggest', rec.id, rec); toast(file ? 'Saved. It goes to the suggestion box at the next sync.' : 'Saved on this phone. Connect the suggestion box file below to send it.'); ctx.scheduleSync(2000); ctx.render();
       } }, 'Save suggestion')),

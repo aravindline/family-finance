@@ -2,7 +2,7 @@
 // Templates live encrypted on this device (and in its backup); each belongs to the person using the device.
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
-import { h, icon, toast, card, empty, tag, sheet, parseAmount, hasLongDigits, DIGITS_MSG } from './ui.js';
+import { h, icon, toast, card, empty, tag, sheet, parseAmount } from './ui.js';
 import { uuid } from './crypto.js';
 
 const pad = n => String(n).padStart(2, '0');
@@ -57,7 +57,6 @@ export function viewRecurring() {
     const save = async () => {
       const amount = parseAmount(f.amount); const day = Number(f.day);
       if (!String(f.name || '').trim()) return toast('Give it a name, like Rent', 'bad');
-      if (hasLongDigits(f.name)) return toast(DIGITS_MSG, 'bad');
       if (!(amount > 0)) return toast('Type the amount', 'bad');
       if (!f.category) return toast('Pick a category', 'bad');
       if (!(day >= 1 && day <= 31)) return toast('Due day must be 1 to 31', 'bad');
@@ -148,7 +147,7 @@ const PLACES = [
   ['Month-end update', 'monthly', 'wizard', 'monthly saved invested balances net worth wizard'], ['Kite holdings', 'kite', 'upload', 'stocks equity demat paste accounts'],
   ['CAS statement', 'cas', 'doc', 'mutual funds folios cdsl pdf'], ['Income', 'income', 'g_coin', 'salary bonus dividend'], ['Year in review', 'year', 'chart', 'financial year fy annual'],
   ['Handover', 'handover', 'shield', 'contacts access accounts emergency'], ['Money lent', 'lent', 'hand', 'owes loan given follow up'], ['Events', 'events', 'c_tag', 'trip festival function'],
-  ['New tracker version', 'move', 'upload', 'move new version migrate copy'],
+  ['Update the tracker', 'move', 'upload', 'update upgrade new version tracker'],
   ['Recurring', 'recurring', 'calendar', 'rent fixed monthly approval'], ['Family activity', 'activity', 'spend', 'feed madhu aravind'],
   ['Settings', 'settings', 'gear', 'sync onedrive'], ['Help', 'help', 'info', 'tips'], ['How holdings are grouped', 'grouping', 'pie', 'investment types type rules'], ['Settings › Fingerprint', 'settings', 'finger', 'biometric unlock'],
   ['Settings › Lock timing', 'settings', 'lock', 'grace auto lock pin'], ['Settings › Hide amounts', 'settings', 'eye', 'privacy mode'],

@@ -8,6 +8,7 @@ import { slotsOf, slotLabel } from './views-kite.js';
 import { goalSheet, goalLinked } from './views-v12.js';
 import { EMERGENCY } from './wealth.js';
 import * as V13 from './views-v13.js';
+import * as V14 from './views-v14.js';
 
 const key = p => (p === 'Family' ? 'family' : p.toLowerCase());
 const sum = (a, f) => a.reduce((t, x) => t + (Number(f(x)) || 0), 0);
@@ -54,20 +55,13 @@ export function viewWealth() {
         h('div', { class: 'row-between', style: { gap: '6px' } }, n ? tag(String(n), 'warn') : tag('All fine', 'ok'), icon('right', 18))));
     const classes = (s.classes || []).map((c, i) => ({ name: c.name, value: c[k] || 0, color: SERIES[i % SERIES.length], alloc: (s.allocation || []).find(a => a.name === c.name) })).filter(c => c.value > 0);
     const total = sum(classes, c => c.value);
-    const mix = card('Asset mix', null,
-      classes.length ? h('div', { class: 'donut-wrap' }, donut(classes, { centre: F.inrShort(total), sub: 'total assets' }),
-        h('ul', { class: 'list legend' }, classes.map(c => h('li', { class: 'li' }, h('span', { class: 'sw', style: { background: c.color } }), h('div', { class: 'body' }, h('div', { class: 'ttl' }, c.name),
-          p === 'Family' && c.alloc && c.alloc.target ? h('div', { class: 'sub' }, 'Target ' + F.pct(c.alloc.target, 0)) : null),
-          h('div', { class: 'end' }, F.pct(c.value / total, 0), h('div', { class: 'sub' }, F.inrShort(c.value))))))) : empty('No assets recorded yet.'),
-      s.retirementOutside ? h('p', { class: 'hint', style: { marginTop: '8px' } }, 'EPF / NPS / PPF outside the investable split: ' + F.inrShort(s.retirementOutside)) : null);
     body.push(nwCard, checksRow, h('div', { class: 'grid two' },
       (s.v29 && V13.nwTrendCard(s, p, C2.notesBlock('Net worth', (s.monthly || []).slice(-12).map(r => r.month.slice(0, 7))))) || card('Net worth by month', null, pts.length >= 2 ? trendChart(pts, { label: 'Net worth by month' }) : empty('Month-end net worth appears after two months are closed in the Month-end update.'),
         h('div', { class: 'spacer' }), C2.notesBlock('Net worth', (s.monthly || []).slice(-12).map(r => r.month.slice(0, 7)))),
-      s.v29 ? null : C2.whatMovedCard(p),
       card('Summary', null, h('div', { class: 'kv' }, h('span', {}, 'Total assets'), h('span', {}, F.inr(A[k])), h('span', {}, 'Loans'), h('span', { class: 'loss' }, F.inr(L[k])),
         h('span', {}, 'Net worth'), h('span', {}, F.inr(N[k]))),
         p === 'Family' && N.aravind !== undefined ? [h('div', { class: 'spacer' }), h('div', { class: 'kv' }, h('span', {}, 'Aravind'), h('span', {}, F.inr(N.aravind) + ' · ' + F.pct(N.family ? N.aravind / N.family : 0, 0)), h('span', {}, 'Madhu'), h('span', {}, F.inr(N.madhu) + ' · ' + F.pct(N.family ? N.madhu / N.family : 0, 0)))] : null),
-      s.v29 ? V13.mixCard(s, p) : mix,
+      V13.mixCard(s, p),
       p === 'Family' && (s.allocation || []).some(a => a.target) ? card('Allocation vs your target', null, h('ul', { class: 'list' }, s.allocation.filter(a => a.target || a.value).map(a =>
         li(a.name, 'Actual ' + F.pct(a.pct, 1) + ' · target ' + F.pct(a.target, 0), a.status ? tag(a.status, statusKind(a.status)) : null, a.move ? (a.move > 0 ? 'Below target by ' : 'Above target by ') + F.inrShort(Math.abs(a.move)) : null, { wrap: true }))),
         h('p', { class: 'hint', style: { marginTop: '8px' } }, 'Figures from your Allocation & Risk sheet. This is not advice to buy or sell.')) : null));
@@ -200,24 +194,8 @@ function holdingsCard(hold, others, title) {
 // ---------------------------------------------------------------- Plan (FIRE, monthly target, emergency fund, goals)
 export function viewPlan() {
   const s = ctx.snap(); if (!s) return noData('Plan');
-  const f = s.fire || {}; const em = s.emergency || {};
-  const onTrack = f.ratio >= 1;
-  const fireCard = card(F.maskText(f.title) || 'FIRE plan', null,
-    f.neededToday || f.projectedToday ? [
-      h('div', { class: 'row-between', style: { alignItems: 'flex-start' } },
-        h('div', {}, h('p', { class: 'hint' }, 'Projected vs needed (today\'s ₹)'), h('p', { class: 'num', style: { fontSize: '1.5rem', fontWeight: 800 } }, F.inrShort(f.projectedToday)), h('p', { class: 'hint' }, 'needed ' + F.inrShort(f.neededToday))),
-        tag(onTrack ? 'ON TRACK' : 'BEHIND', onTrack ? 'ok' : 'warn')),
-      bar(f.ratio, onTrack ? 'good' : 'warn'),
-      h('div', { class: 'kv', style: { marginTop: '12px' } },
-        f.fireAge ? [h('span', {}, 'FIRE age'), h('span', {}, f.fireAge + (f.fireDate ? ' · ' + F.monthLabel(f.fireDate, true) : ''))] : null,
-        f.yearsToGo !== null && f.yearsToGo !== undefined ? [h('span', {}, 'Time to go'), h('span', {}, F.years(f.yearsToGo))] : null,
-        f.progress !== null && f.progress !== undefined ? [h('span', {}, 'Progress today'), h('span', {}, F.pct(f.progress, 1))] : null,
-        f.monthlyNeeded ? [h('span', {}, f.labels && f.labels.I ? f.labels.I : 'Monthly investing needed'), h('span', {}, F.inrShort(f.monthlyNeeded))] : null,
-        f.lastsUntil ? [h('span', {}, 'Money lasts until age'), h('span', {}, String(f.lastsUntil))] : null,
-        s.coast && typeof s.coast.year === 'number' ? [h('span', {}, 'Coast FIRE year'), h('span', { id: 'coastyear' }, s.coast.year + (typeof s.coast.age === 'number' ? ' · age ' + s.coast.age : ''))] : null),
-      s.coast ? h('p', { class: 'hint' }, 'Coast FIRE: the year from which, at today\'s pace, you could stop adding money and the corpus would still grow to what retirement needs.') : null,
-      (f.notes || []).length ? h('p', { class: 'hint', style: { marginTop: '10px' } }, F.maskText(f.notes.join(' · '))) : null]
-      : empty('Fill the Settings sheet in the tracker to see the FIRE plan.'));
+  const em = s.emergency || {};
+  const fireCard = V14.fireCard(s); // v14: one takeaway; the details open on tap (Aravind, 12 Nov 2026)
   const bk = (s.buckets || []).filter(b => b.target || b.actual);
   const target = card('Monthly saving & investing', null, bk.length ? h('div', {}, bk.map(b => h('div', { class: 'hbar' }, h('span', { class: 'ttl' }, b.name), h('span', { class: 'num' }, F.inrShort(b.actual), h('span', { class: 'faint' }, ' / ' + F.inrShort(b.target))),
     b.target ? bar(b.actual / b.target, b.actual >= b.target ? 'good' : 'warn') : null))) : empty('Set your monthly target on the Settings sheet.'),
@@ -256,7 +234,7 @@ export function viewDocuments() {
     card('Documents (' + docs.length + ')', null, docs.length ? h('ul', { class: 'list' }, docs.map(d => li(d.name, [d.owner, d.where].filter(Boolean).join(' · '), d.expiry ? F.date(d.expiry) : null, d.status || null, { wrap: true, lead: statusIcon(d.expiry ? statusKind(d.status) : 'ok') }))) : empty('No documents listed.')),
     card('Nominees', missing.length ? tag(missing.length + ' GAPS', 'warn') : tag('ALL SET', 'ok'), nom.length ? h('ul', { class: 'list' }, nom.map(n => li(n.name, [n.institution, n.owner, n.nominee ? 'nominee ' + n.nominee : 'no nominee'].filter(Boolean).join(' · '), null, null, { wrap: true, lead: statusIcon(n.nominee && statusKind(n.status) === 'ok' ? 'ok' : 'warn') }))) : empty('No accounts listed.')),
     con.length ? card('Emergency contacts (old list)', null, h('ul', { class: 'list' }, con.map(c => li(c.name, [c.role, c.phone, c.email, c.notes].filter(Boolean).join(' · '), null, null, { wrap: true }))), h('p', { class: 'hint' }, 'Contacts now live in Handover.')) : null),
-    h('p', { class: 'hint', style: { margin: '12px 4px' } }, 'To change these: More › Yearly & one-time. Contacts are in Handover. Never store full account numbers, PAN, Aadhaar or passport numbers.')] };
+    h('p', { class: 'hint', style: { margin: '12px 4px' } }, 'To change these: More › Yearly & one-time. Contacts are in Handover.')] };
 }
 
 // ---------------------------------------------------------------- Alerts (Health Check)

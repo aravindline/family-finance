@@ -2,7 +2,7 @@
 // Like every screen, these only queue edits to input cells or rows of the app's own tables.
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
-import { h, icon, toast, haptic, seg, tag, card, empty, sheet, bar, parseAmount, hasLongDigits, DIGITS_MSG, trendChart, donut, SERIES } from './ui.js';
+import { h, icon, toast, haptic, seg, tag, card, empty, sheet, bar, parseAmount, trendChart, donut, SERIES } from './ui.js';
 import { uuid } from './crypto.js';
 import { isoToSerial } from './xlsx.js';
 import * as W from './wealth.js';
@@ -67,7 +67,7 @@ export function depositForm(prefill = {}) {
     h('div', { class: 'label-sm' }, 'Start'), start, h('div', { class: 'label-sm' }, 'Maturity'), mat, h('div', { class: 'label-sm' }, 'Pays into (interest and maturity)'), pays,
     h('button', { class: 'btn primary', id: 'depsave', onclick: async () => {
       const a = parseAmount(amt.value), r = Number(String(rate.value).replace('%', '')); const nm = name.value.trim();
-      if (!nm) return toast('Give it a name', 'bad'); if (hasLongDigits(nm, bank.value)) return toast(DIGITS_MSG, 'bad');
+      if (!nm) return toast('Give it a name', 'bad');
       if (!(a > 0)) return toast('Type the amount', 'bad'); if (!(r >= 0 && r < 30)) return toast('Type the rate, like 7.1', 'bad');
       if (!start.value || !mat.value || mat.value <= start.value) return toast('Pick the start and a later maturity date', 'bad');
       const id = 'DEP-' + uuid().slice(0, 8);

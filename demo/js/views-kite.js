@@ -81,7 +81,6 @@ export function viewIntlPaste() {
     const lines = ID.text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (lines.length < 3) return toast('Paste the Current Holdings screen first', 'bad');
     if (lines.length > 300) return toast('That is more than 300 lines. Paste only the Current Holdings screen.', 'bad');
-    if (lines.some(l => /\d{9,}/.test(l.replace(/[,.$]/g, '')) && !/^[$\d,.\s+\-−%]+$/.test(l))) return toast('The paste seems to hold an account number. Remove it and paste again.', 'bad');
     await ctx.queue({ kind: 'fillColumn', sheet: 'Intl Holdings', col: 'T', from: 13, to: 312, lines, date: { ref: 'C6', value: isoToSerial(isoToday()) }, title: 'INDmoney holdings paste' });
     ID.text = ''; toast('Saved. Reaches the tracker on the next sync.', 'good'); history.back();
   };

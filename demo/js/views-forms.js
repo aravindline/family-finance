@@ -5,17 +5,17 @@ import * as F from './fmt.js';
 import { h, icon, toast, tag, card, empty, sheet } from './ui.js';
 import { FORMS } from './forms.js';
 import { isoToSerial, serialToISO } from './xlsx.js';
+import { topicOfType, TOPIC_NAMES } from './wealth.js';
 
 const byId = id => FORMS.find(f => f.id === id);
 // a handover pack is edited only by its owner; the other person sees it view-only
 export const viewOnly = f => !!(f && f.owner && ctx.who() && ctx.who() !== f.owner);
 const backOf = f => (f && f.back) || 'tracker';
-const SHORT = { hoAaccounts: 'Handover', hoAcontacts: 'Handover', hoAdigital: 'Handover', hoAsteps: 'Handover', hoAreview: 'Handover', hoMaccounts: 'Handover', hoMcontacts: 'Handover', hoMdigital: 'Handover', hoMsteps: 'Handover', hoMreview: 'Handover', assets: 'Assets', gold: 'Gold', fd: 'FD / RD', vehicles: 'Vehicles', otherhold: 'Holdings', currencies: 'Currencies', loans: 'Loans', prepay: 'Prepay', insurance: 'Insurance', wills: 'Wills', documents: 'Documents', nominees: 'Nominees', contacts: 'Contacts', goals: 'Goals', goalfy: 'Goals', settings: 'Plan', kiteaccts: 'Kite', intlset: 'Intl', intl: 'Intl', expcats: 'Lists', paymodes: 'Lists', inccats: 'Lists', incaccts: 'Lists', invmap: 'Lists', typerules: 'Lists', typeover: 'Lists', sectors: 'Sectors', sectorlist: 'Sectors', expcatnames: 'Lists' };
+const SHORT = { hoAaccounts: 'Handover', hoAcontacts: 'Handover', hoAdigital: 'Handover', hoAsteps: 'Handover', hoAreview: 'Handover', hoMaccounts: 'Handover', hoMcontacts: 'Handover', hoMdigital: 'Handover', hoMsteps: 'Handover', hoMreview: 'Handover', assets: 'Assets', gold: 'Gold', fd: 'FD / RD', vehicles: 'Vehicles', otherhold: 'Holdings', currencies: 'Currencies', loans: 'Loans', prepay: 'Prepay', insurance: 'Insurance', wills: 'Wills', documents: 'Documents', nominees: 'Nominees', contacts: 'Contacts', goals: 'Goals', goalfy: 'Goals', settings: 'Plan', kiteaccts: 'Kite', intlset: 'Intl', intl: 'Intl', brokers: 'Intl', expcats: 'Lists', paymodes: 'Lists', inccats: 'Lists', incaccts: 'Lists', invmap: 'Lists', typerules: 'Lists', typeover: 'Lists', sectors: 'Sectors', sectorlist: 'Sectors', expcatnames: 'Lists' };
 const shortTitle = f => SHORT[f.id] || f.title;
 const data = id => { const s = ctx.snap(); return s && s.forms ? s.forms[id] : null; };
 const blank = v => v === null || v === undefined || v === '';
 const todaySerial = () => { const d = new Date(); return isoToSerial(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)); };
-const LONG_DIGITS = /\d{5,}/;
 
 // values typed on this device that have not reached the tracker yet win over the last synced value
 function pendingMap(sheetName) {
@@ -42,8 +42,6 @@ function fromText(fl, txt) {
   if (t === 'date') { if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return [null, 'Pick a date']; return [isoToSerial(s), null]; }
   if (t === 'month') { if (!/^\d{4}-\d{2}$/.test(s)) return [null, 'Pick a month']; return [isoToSerial(s + '-01'), null]; }
   if (t === 'email' && !/^[^\s@]+@[^\s@]+$/.test(s)) return [null, 'Check the email'];
-  if (fl.last4 && !/^\d{1,4}$/.test(s)) return [null, 'Type only the last 4 digits'];
-  if (fl.guard && LONG_DIGITS.test(s)) return [null, 'Only the last 4 digits of any account, card or ID number, please'];
   return [s, null];
 }
 function show(t, v) {
@@ -87,8 +85,7 @@ function input(fl, id, text, opts, onChange) {
   if (t === 'date') a.type = 'date'; if (t === 'month') a.type = 'month';
   if (t === 'phone') Object.assign(a, { type: 'tel', inputmode: 'tel', maxlength: 20 });
   if (t === 'email') Object.assign(a, { type: 'email', maxlength: 80 });
-  if (t === 'text') Object.assign(a, { maxlength: fl.last4 ? 4 : fl.wide ? 300 : 120 });
-  if (fl.last4) Object.assign(a, { inputmode: 'numeric', placeholder: 'e.g. 1234' });
+  if (t === 'text') Object.assign(a, { maxlength: fl.wide ? 300 : 120 });
   if (t === 'money') {
     const fmt = h('span', { class: 'fsub', 'aria-live': 'polite' }); const upd = v => { const n = Number(String(v).replace(/[,₹\s]/g, '')); fmt.textContent = String(v).trim() && isFinite(n) ? '= ' + F.inr(n) : ''; };
     a.oninput = e => { onChange(e.target.value); upd(e.target.value); }; const el = h('input', a); upd(text);
@@ -99,6 +96,18 @@ function input(fl, id, text, opts, onChange) {
 }
 const fieldBlock = (label, sub, el) => h('label', { class: 'fblock' }, h('span', { class: 'flabel' }, label, sub ? h('span', { class: 'fsub' }, ' · ' + sub) : null), el);
 
+// ---- topic filter (Aravind, 12 Nov 2026): one sheet's rows shown under the More topic each holding type belongs to.
+// Opened from a topic, a form lists only that topic's rows and offers only that topic's types; opened anywhere else it lists all.
+const classOf = type => { const m = data('invmap'); const r = m && m.rows.find(x => String((x.cells.A || {}).v || '') === String(type)); return r ? String((r.cells.B || {}).v || '') : ''; };
+export function topicOfRow(f, get) {
+  const type = get(f.topicCol);
+  if (blank(type)) { const name = String(get(f.label.c) || ''); const t = f.id === 'assets' && name ? topicOfType(name, '') : f.topicDefault; return t === 'gold' ? 'gold' : f.topicDefault; }
+  const t = topicOfType(type, classOf(type));
+  return f.id === 'assets' && t !== 'gold' ? 'cash' : t;
+}
+const topicOn = f => (f && f.topicCol && state.formTopic && TOPIC_NAMES[state.formTopic] ? state.formTopic : null);
+const topicTypes = (f, opts) => { const t = topicOn(f); return t ? opts.filter(o => topicOfRow(f, c => (c === f.topicCol ? o : '')) === t) : opts; };
+
 // ---- queue the changes of one form; adds the sheet's "Last updated" date when the form has one
 async function queueCells(f, cells, title) {
   const d = data(f.id);
@@ -107,12 +116,13 @@ async function queueCells(f, cells, title) {
 }
 
 // ---------------------------------------------------------------- hub
-export function formStatus(f) { return status(f); }
-function status(f) {
+export function formStatus(f, topic) { return status(f, topic); }
+function status(f, topic) {
   const d = data(f.id); if (!d) return { text: 'Not in your tracker yet. Sync first.', n: 0 };
   const pend = pendingMap(f.sheet); let text = '';
   if (f.rows) {
-    const filled = d.rows.filter(r => (f.show || []).some(c => !blank(valueOf(pend, c + r.r, (r.cells[c] || {}).v)))).length;
+    const t = topic !== undefined ? (f.topicCol ? topic : null) : topicOn(f); const inTopic = r => !t || (topicOfRow(f, c => valueOf(pend, c + r.r, (r.cells[c] || {}).v)) === t && (f.show || []).some(c => (r.cells[c] || {}).in));
+    const filled = d.rows.filter(r => inTopic(r) && (f.show || []).some(c => !blank(valueOf(pend, c + r.r, (r.cells[c] || {}).v)))).length;
     text = f.noAdd ? filled + ' of ' + d.rows.length + ' filled' : filled ? filled + ' added' : 'Nothing added yet';
   } else if (f.cells) { const ins = f.cells.filter(c => d.cells[c.r] && d.cells[c.r].in); const filled = ins.filter(c => !blank(valueOf(pend, c.r, d.cells[c.r].v))).length; text = filled + ' of ' + ins.length + ' filled'; }
   else if (f.settings) { const ins = d.rows.filter(r => r.in); text = ins.filter(r => !blank(valueOf(pend, r.ref, r.v))).length + ' of ' + ins.length + ' set'; }
@@ -133,6 +143,8 @@ export function viewForm() {
   const used = d.rows.filter(r => f.noAdd || !blank(v(r, f.label.c)) || f.fields.some(x => r.cells[x.c] && r.cells[x.c].in && !blank(v(r, x.c))));
   let rows = f.noAdd ? d.rows : used;
   if (ro) rows = rows.filter(r => f.fields.some(x => !blank(v(r, x.c))));
+  // in a topic, rows filled in by another screen (FD / RD list, EPF, gold, vehicles, money lent) are left to that screen
+  const tp = topicOn(f); if (tp) rows = rows.filter(r => topicOfRow(f, c => v(r, c)) === tp && (f.show || []).some(c => (r.cells[c] || {}).in));
   const title = r => { const lv = v(r, f.label.c); return blank(lv) ? 'Row ' + r.r : f.stepLabel ? 'Step ' + lv : f.label.t === 'month' || f.label.t === 'date' ? show(f.label.t, lv) : String(lv); };
   const sub = r => (f.show || []).map(c => { const x = v(r, c); return blank(x) ? null : (fl(c).t === 'money' ? fl(c).l.replace(/ \(₹\)$/, '') + ' ' + F.inrShort(x) : show(fl(c).t, x)); }).filter(Boolean).join(' · ') || ((f.show || []).length ? 'Empty' : '');
   const free = d.rows.filter(r => !used.includes(r) && (r.cells[f.label.c] || {}).in);
@@ -141,10 +153,11 @@ export function viewForm() {
     state.formRow = free[0].r; state.formNew = true; ctx.go('formedit');
   } }, icon('plus', 16), f.addLabel || 'Add'));
   return { title: shortTitle(f), back: backOf(f), body: [
-    h('h2', { class: 'formhead' }, f.title + (f.owner ? ' · ' + f.owner : '')),
-    h('p', { class: 'hint', style: { margin: '0 4px 12px' } }, f.sub + (d.stamp ? '. ' + status(f).text.split(' · ').pop().replace(/^./, c => c.toUpperCase()) + '.' : '.') + (ro ? ' View only: ' + f.owner + ' edits this.' : '')),
+    h('h2', { class: 'formhead' }, (state.formTitle && tp ? state.formTitle : f.title) + (f.owner ? ' · ' + f.owner : '')),
+    h('p', { class: 'hint', style: { margin: '0 4px 12px' } }, (tp && state.formSub ? state.formSub : f.sub) + (d.stamp ? '. ' + status(f).text.split(' · ').pop().replace(/^./, c => c.toUpperCase()) + '.' : '.') + (ro ? ' View only: ' + f.owner + ' edits this.' : '')),
     add,
-    f.id === 'intl' ? h('div', { class: 'btns', style: { margin: '0 0 12px' } }, h('button', { class: 'btn', id: 'intlsetbtn', onclick: () => { state.formId = 'intlset'; ctx.go('form'); } }, icon('gear', 16), 'Platform, date and USD rate')) : null,
+    f.id === 'intl' ? h('div', { class: 'btns', style: { margin: '0 0 12px' } }, h('button', { class: 'btn', id: 'intlsetbtn', onclick: () => { state.formId = 'intlset'; ctx.go('form'); } }, icon('gear', 16), 'Main platform'),
+      h('button', { class: 'btn', id: 'brokersbtn', onclick: () => { state.formId = 'brokers'; ctx.go('form'); } }, icon('gear', 16), 'Other brokers')) : null,
     card(null, null, rows.length ? h('ul', { class: 'list', id: 'formlist' }, rows.map(r => h('li', { class: 'li tap', 'data-row': r.r, onclick: () => { state.formRow = r.r; state.formNew = false; ctx.go('formedit'); } },
       h('div', { class: 'body' }, h('div', { class: 'ttl' }, title(r)), h('div', { class: 'sub' }, sub(r))), pend.size && f.fields.some(x => pend.has(x.c + r.r)) ? tag('NOT SYNCED', 'plain') : null, icon('right', 16)))) : empty(ro ? 'Nothing added yet.' : 'Nothing added yet. Tap Add.'))] };
 }
@@ -169,7 +182,7 @@ export function viewFormEdit() {
     const c = r.cells[fl.c] || {}; const id = 'f-' + fl.c;
     if (!c.in) { if (!blank(cur(fl.c)) && fl.c !== f.label.c) els.push(fieldBlock(fl.l, 'set in the tracker', h('div', { class: 'roval' }, show(fl.t, cur(fl.c))))); continue; }
     const text = fl.c in draft ? draft[fl.c] : toText(fl.t, cur(fl.c));
-    els.push(fieldBlock(fl.l, null, input(fl, id, text, fl.t === 'choice' ? usedOpts(d, fl.c) : null, nv => { draft[fl.c] = nv; })));
+    els.push(fieldBlock(fl.l, null, input(fl, id, text, fl.t === 'choice' ? (fl.c === f.topicCol ? topicTypes(f, usedOpts(d, fl.c)) : usedOpts(d, fl.c)) : null, nv => { draft[fl.c] = nv; })));
   }
   // simple sums the app can work out itself are shown at once (marked) when what you typed differs from the tracker's last figures
   const liveRow = c => { if (c in draft) { const fl = f.fields.find(x => x.c === c); const [nv] = fromText(fl || { t: 'num' }, draft[c]); return nv; } return cur(c); };
@@ -182,6 +195,8 @@ export function viewFormEdit() {
       const [nv, err] = fromText(fl, draft[fl.c]); if (err) { toast(fl.l + ': ' + err, 'bad'); const el = document.getElementById('f-' + fl.c); if (el) el.focus(); return; }
       if (!same(nv, cur(fl.c))) cells.push({ ref: fl.c + r.r, base: base(fl.c), value: nv, label: fl.l });
     }
+    if (topicOn(f) && f.id === 'otherhold') { const ty = f.topicCol in draft ? fromText({ t: 'choice' }, draft[f.topicCol])[0] : cur(f.topicCol); const nm = f.label.c in draft ? draft[f.label.c] : cur(f.label.c);
+      if (!blank(nm) && blank(ty)) { toast('Pick the asset type, so it shows under ' + TOPIC_NAMES[topicOn(f)] + '.', 'bad'); return; } }
     if (!cells.length) { drafts.delete(key); toast('No changes'); return history.back(); }
     await queueCells(f, cells, f.title + ' · ' + heading);
     drafts.delete(key); toast('Saved. Reaches the tracker on the next sync.', 'good'); history.back();

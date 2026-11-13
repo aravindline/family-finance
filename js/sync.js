@@ -4,8 +4,7 @@
 import { Workbook, serialToISO, isoToSerial } from './xlsx.js';
 import { uuid } from './crypto.js';
 import { extractSnapshot } from './extract.js';
-import { readArea, toRows, isTidy, readTidy, toTidy, TIDY } from './kite.js';
-import { movedTo } from './migrate.js';
+import { isTidy, readTidy, toTidy, TIDY } from './kite.js';
 
 const DAILY = 'tblDaily', LOG = 'tblSyncLog', META = 'tblAppMeta';
 export class PreconditionFailed extends Error {}
@@ -110,35 +109,19 @@ export function applyOutbox(wb, ops, who, device) {
       const sh = 'Paste Holdings'; if (!wb.hasSheet(sh)) { conflicts.push({ op, reason: 'missing', remote: null }); continue; }
       const g = wb.grid(sh);
       const codes = []; for (let r = 6; r <= 11; r++) { const v = g.get(r) && g.get(r).get(1); if (v) codes.push(String(v)); }
-      if (isTidy(g.get(12) && g.get(12).get(1))) { // tracker v25+: one row per stock per account
-        const S = TIDY.start, E = S + TIDY.rows - 1, NC = TIDY.cols.length;
-        const fx = wb.formulaRefs(sh); let hasF = false; for (let r = S; r <= E && !hasF; r++) for (const c of TIDY.cols) if (fx.has(c + r)) { hasF = true; break; }
-        if (hasF) { conflicts.push({ op, reason: 'formula', remote: null }); continue; }
-        const old = []; for (let r = S; r <= E; r++) { const m = g.get(r); old.push([1, 2, 3, 4, 5].map(c => (m && m.has(c) ? m.get(c) : null))); }
-        const acc = readTidy(old, codes); const before = old.filter(x => x[0] && x[1]).length;
-        for (const c of op.replace || []) acc[c] = [];
-        for (const [c, list] of Object.entries(op.accounts || {})) acc[c] = list;
-        const rows = toTidy(acc, codes);
-        if (rows.length > TIDY.rows) { conflicts.push({ op, reason: 'full', remote: rows.length + ' rows; the tracker has room for ' + TIDY.rows }); continue; }
-        for (let r = S; r <= E; r++) { const row = rows[r - S]; const m = g.get(r); for (let k = 0; k < NC; k++) { const v = row ? row[k] : null; if (v === null && !(m && m.has(k + 1) && m.get(k + 1) !== null)) continue; wb.set(sh, TIDY.cols[k] + r, v); } }
-        if (op.asOf) { const oldD = wb.get(sh, 'B3'); wb.set(sh, 'B3', op.asOf); log.push([stamp, who, device, sh, 'B3', 'Prices as of', oldD === null ? '' : String(oldD), String(op.asOf), batch]); }
-        log.push([stamp, who, device, sh, 'A' + S + ':E' + (S + Math.max(rows.length, before) - 1), 'Kite holdings (' + Object.keys(op.accounts || {}).join(', ') + ')', before + ' rows', rows.length + ' rows', batch]);
-        applied.push(op.opId); continue;
-      }
-      const COLS = 'ABCDEFG'; const start = op.start || 13;
-      let last = start - 1; for (const [r, m] of g) if (r >= start && [...m.keys()].some(c => c <= 7)) last = Math.max(last, r);
-      const old = []; for (let r = start; r <= last; r++) { const m = g.get(r); old.push([1, 2, 3, 4, 5, 6, 7].map(c => (m && m.has(c) ? m.get(c) : null))); }
-      const fx = wb.formulaRefs(sh); let hasF = false; for (let r = start; r <= last; r++) for (const c of COLS) if (fx.has(c + r)) hasF = true;
+      if (!isTidy(g.get(12) && g.get(12).get(1))) { conflicts.push({ op, reason: 'missing', remote: null }); continue; } // tracker v25+: one row per stock per account
+      const S = TIDY.start, E = S + TIDY.rows - 1, NC = TIDY.cols.length;
+      const fx = wb.formulaRefs(sh); let hasF = false; for (let r = S; r <= E && !hasF; r++) for (const c of TIDY.cols) if (fx.has(c + r)) { hasF = true; break; }
       if (hasF) { conflicts.push({ op, reason: 'formula', remote: null }); continue; }
-      const acc = readArea(old, codes); const before = Object.values(acc).reduce((t, l) => t + l.length, 0);
+      const old = []; for (let r = S; r <= E; r++) { const m = g.get(r); old.push([1, 2, 3, 4, 5].map(c => (m && m.has(c) ? m.get(c) : null))); }
+      const acc = readTidy(old, codes); const before = old.filter(x => x[0] && x[1]).length;
       for (const c of op.replace || []) acc[c] = [];
       for (const [c, list] of Object.entries(op.accounts || {})) acc[c] = list;
-      const rows = toRows(acc);
-      const end = Math.max(last, start + rows.length - 1);
-      for (let r = start; r <= end; r++) { const row = rows[r - start]; for (let k = 0; k < 7; k++) { const v = row ? row[k] : null; const ref = COLS[k] + r; if (v === null && !(g.get(r) && g.get(r).has(k + 1))) continue; wb.set(sh, ref, v); } }
+      const rows = toTidy(acc, codes);
+      if (rows.length > TIDY.rows) { conflicts.push({ op, reason: 'full', remote: rows.length + ' rows; the tracker has room for ' + TIDY.rows }); continue; }
+      for (let r = S; r <= E; r++) { const row = rows[r - S]; const m = g.get(r); for (let k = 0; k < NC; k++) { const v = row ? row[k] : null; if (v === null && !(m && m.has(k + 1) && m.get(k + 1) !== null)) continue; wb.set(sh, TIDY.cols[k] + r, v); } }
       if (op.asOf) { const oldD = wb.get(sh, 'B3'); wb.set(sh, 'B3', op.asOf); log.push([stamp, who, device, sh, 'B3', 'Prices as of', oldD === null ? '' : String(oldD), String(op.asOf), batch]); }
-      const after = Object.values(acc).reduce((t, l) => t + l.filter(x => x.qty > 0).length, 0);
-      log.push([stamp, who, device, sh, 'A' + start + ':G' + end, 'Kite holdings (' + Object.keys(op.accounts || {}).join(', ') + ')', before + ' holdings', after + ' holdings', batch]);
+      log.push([stamp, who, device, sh, 'A' + S + ':E' + (S + Math.max(rows.length, before) - 1), 'Kite holdings (' + Object.keys(op.accounts || {}).join(', ') + ')', before + ' rows', rows.length + ' rows', batch]);
       applied.push(op.opId);
     }
   }
@@ -164,8 +147,6 @@ export async function syncOnce({ transport, ops, who, device, maxTries = 3, last
     const { bytes, etag } = await transport.download();
     const wb = await Workbook.open(bytes);
     if (!wb.hasSheet('Daily Expenses') || !wb.tables[DAILY]) throw new Error('This file is not tracker v20 or later (Daily Expenses sheet missing).');
-    const mv = movedTo(wb);
-    if (mv) { const e = new Error('This tracker was moved to a newer tracker' + (mv['Updated by'] && String(mv['Updated by']).includes(' · ') ? ' (' + String(mv['Updated by']).split(' · ').slice(1).join(' · ') + ')' : '') + ' on ' + String(mv['Updated at'] || '').slice(0, 10) + '. Switch this phone: More › App › Settings › Advanced › New tracker version.'); e.moved = true; throw e; }
     const res = ops.length ? applyOutbox(wb, ops, who, device) : { applied: [], conflicts: [], logCount: 0 };
     let newEtag = etag;
     if (res.logCount) { // nothing changed (or every change was already in the file): nothing is uploaded

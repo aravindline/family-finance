@@ -84,7 +84,7 @@ export function extractSnapshot(wb) {
   if (pr) for (let r = pr + 1; r < pr + 6; r++) { const l = str(at(d, r, C('B'))); if (l) out.protection[l] = per(r); }
   // FIRE block
   out.fire = {};
-  const fr = findRow(d, C('B'), starts('Needed at 40'), 1, 140) || findRow(d, C('B'), starts('Needed at'), 1, 140);
+  const fr = findRow(d, C('B'), starts('Needed at'), 1, 140);
   if (fr) {
     out.fire.labels = {};
     for (const col of 'BDFIKM') { const l = at(d, fr, C(col)); if (l) out.fire.labels[col] = str(l); }
@@ -93,8 +93,6 @@ export function extractSnapshot(wb) {
     out.fire.neededToday = cr(at(d, fr + 1, C('B'))); out.fire.projectedToday = cr(at(d, fr + 1, C('D')));
     out.fire.ratio = num(at(d, fr + 1, C('F'))); out.fire.monthlyNeeded = lk(at(d, fr + 1, C('I')));
     out.fire.lastsUntil = at(d, fr + 1, C('K')); out.fire.yearsToFire = num(at(d, fr + 1, C('M')));
-    out.fire.notes = 'BDFIKM'.split('').map(col => str(at(d, fr + 3, C(col)))).filter(Boolean);
-    const title = at(d, fr - 2, C('B')); if (title) out.fire.title = str(title);
   }
 
   // ---- monthly tracker (history)
@@ -165,13 +163,17 @@ export function extractSnapshot(wb) {
       }
       const tot = rows.reduce((t, x) => t + x.current, 0); for (const x of rows) x.weight = tot ? x.current / tot : 0;
       out.holdings = rows; out.kiteTidy = true;
-    } else out.holdings = tbl(wb, 'tblHoldings').filter(r => r['Symbol / Fund']).map(r => ({ owner: str(r['Owner']), account: str(r['Account']), name: str(r['Symbol / Fund']), type: str(r['Asset type']), cls: str(r['Class']), qty: num(r['Qty']), invested: num(r['Invested (₹)']), current: num(r['Current value (₹)']), pnl: num(r['P&L (₹)']), ret: num(r['Return %']), weight: num(r['Weight %']) })); }
+    } else out.holdings = []; } // the app needs tracker v29 or later (one row per stock per account)
   out.otherHoldings = tbl(wb, 'tblOtherHoldings').filter(r => r['Holding name'] && (num(r['Current (₹)']) || num(r['Value ₹ (if no units)']))).map(r => ({ owner: str(r['Owner']), platform: str(r['Platform']), name: str(r['Holding name']), type: str(r['Asset type']), cls: str(r['Class (auto)']), invested: num(r['Invested (₹)']), current: num(r['Current (₹)']) ?? num(r['Value ₹ (if no units)']), pnl: num(r['P&L (₹)']), ret: num(r['Return']), linked: /^Linked/i.test(str(r['Notes'])) || undefined }));
   { const ig = sheetGrid(wb, 'Intl Holdings'); out.intlPlatform = str(at(ig, 4, 3)) || 'INDmoney'; out.intlOwner = str(at(ig, 5, 3)) || ''; }
-  // v29: broker (S) and currency (U) for each row sit just right of the table
+  // v29: broker (S) and currency (U) for each row sit just right of the table. v30: each other broker has its own
+  // default owner, holdings date, currency and ₹ rate (Y13:AC22); a stock's own owner and currency win over its broker's.
   { const ig = sheetGrid(wb, 'Intl Holdings');
-    out.intl = tbl(wb, 'tblIntl').filter(r => r['Stock symbol']).map(r => ({ type: 'US stocks', platform: str(at(ig, r._row, C('S'))) || out.intlPlatform, broker: str(at(ig, r._row, C('S'))) || out.intlPlatform, currency: str(at(ig, r._row, C('U'))) || 'USD', row: r._row,
-      owner: str(r['Owner (blank = default)']) || out.intlOwner, name: str(r['Stock symbol']), qty: num(r['Quantity']), price: num(r['Price used ($)']), invested: num(r['Invested (₹)']), current: num(r['Current (₹)']), pnl: num(r['P&L (₹)']), ret: num(r['Return']) })); }
+    out.brokers = []; for (let r = 13; r <= 22; r++) { const name = str(at(ig, r, C('Y'))); if (name) out.brokers.push({ name, owner: str(at(ig, r, C('Z'))), date: iso(at(ig, r, C('AA'))), currency: str(at(ig, r, C('AB'))), rate: num(at(ig, r, C('AC'))) }); }
+    out.intlDate = iso(at(ig, 6, 3));
+    const bk = name => out.brokers.find(b => b.name === name) || {};
+    out.intl = tbl(wb, 'tblIntl').filter(r => r['Stock symbol']).map(r => { const b = bk(str(at(ig, r._row, C('S')))); return { type: 'US stocks', platform: str(at(ig, r._row, C('S'))) || out.intlPlatform, broker: str(at(ig, r._row, C('S'))) || out.intlPlatform, currency: str(at(ig, r._row, C('U'))) || b.currency || 'USD', rateFix: b.rate > 0 ? b.rate : null, row: r._row,
+      owner: str(r['Owner (blank = default)']) || b.owner || out.intlOwner, name: str(r['Stock symbol']), qty: num(r['Quantity']), price: num(r['Price used ($)']), invested: num(r['Invested (₹)']), current: num(r['Current (₹)']), pnl: num(r['P&L (₹)']), ret: num(r['Return']) }; }); }
   out.otherAssets = tbl(wb, 'tblOther').filter(r => r['Item'] && num(r['Family (₹)'])).map(r => ({ name: str(r['Item']), where: str(r['Bank / institution']), type: str(r['Type']), aravind: num(r['Aravind (₹)']), madhu: num(r['Madhu (₹)']), family: num(r['Family (₹)']), cls: str(r['Class (auto)']) }));
   out.loans = tbl(wb, 'tblLoans').filter(r => r['Loan'] && num(r['Total (₹)'])).map(r => ({ name: str(r['Loan']), lender: str(r['Lender']), aravind: num(r['Aravind outstanding (₹)']), madhu: num(r['Madhu outstanding (₹)']), total: num(r['Total (₹)']), rate: num(r['Interest %']), emi: num(r['EMI (₹)']), closes: iso(r['Closes (month)']), nextEmi: iso(r['Next EMI month']), emisLeft: num(r['EMIs left (auto)']), lastEmi: iso(r['Last EMI (auto)']), interestLeft: num(r['Interest still to pay (₹, auto)']) }));
 
@@ -215,7 +217,6 @@ export function extractSnapshot(wb) {
   // ---- v22: income entries (one row per amount received, like daily expenses), categories and received accounts
   out.v22 = !!(wb.tables && wb.tables.tblIncome);
   // v27: invested amount (buy cost) per bucket, saved by the Month-end update; this month minus last = invested this month
-  out.v27 = !!(wb.tables && wb.tables.tblInvestedHist);
   // v28: EPF ledger (opening balance, monthly contribution for a period, interest) and holdings linked to goals
   out.v28 = !!(wb.tables && wb.tables.tblEPF && wb.tables.tblGoalLinks);
   const isoM = v => (typeof v === 'number' ? iso(v) : str(v)).slice(0, 10);
@@ -223,7 +224,6 @@ export function extractSnapshot(wb) {
     from: r['From month'] ? isoM(r['From month']) : '', to: r['To month'] ? isoM(r['To month']) : '', notes: str(r['Notes']), by: str(r['Entered by']) }));
   out.goalLinks = tbl(wb, 'tblGoalLinks').filter(r => str(r['Link ID']) && str(r['Status']) !== 'Deleted').map(r => ({ id: str(r['Link ID']), goal: str(r['Goal']), cls: str(r['Class']), owner: str(r['Owner']), holding: str(r['Holding']), share: num(r['Share %']) || 1, value: num(r['Linked value (₹)']) }));
   for (const g of out.goals) { const t = tbl(wb, 'tblGoals').find(r => r._row === g.row); g.linked = t ? num(t['Linked value (₹, auto)']) : null; }
-  out.investedHist = tbl(wb, 'tblInvestedHist').filter(r => str(r['Month'])).map(r => ({ month: str(r['Month']).slice(0, 7), ind: num(r['Indian equity (₹)']) || 0, eqf: num(r['Equity funds (₹)']) || 0, debt: num(r['Debt & arbitrage funds (₹)']) || 0, intl: num(r['International (₹)']) || 0, at: str(r['Saved on']), by: str(r['Saved by']) }));
   out.income = tbl(wb, 'tblIncome').filter(r => r['Entry ID'] && num(r['Date'])).map(r => ({ id: str(r['Entry ID']), date: iso(r['Date']), month: iso(r['Date']).slice(0, 7), person: str(r['Person']), category: str(r['Category']), sub: str(r['Sub-category']), amount: num(r['Amount (₹)']) || 0, account: str(r['Received account']), notes: str(r['Notes']), by: str(r['Entered by']), at: str(r['Entered at']), status: str(r['Status']) || 'Active' }));
   { const ig = sheetGrid(wb, 'Income Entries'); out.incomeCats = []; out.incomeAccounts = [];
     if (ig) { for (let r = 6; r <= 30; r++) { const c = str(at(ig, r, C('M'))); if (!c) break; out.incomeCats.push({ name: c, goes: str(at(ig, r, C('N'))), subs: ['O', 'P', 'Q', 'R'].map(x => str(at(ig, r, C(x)))).filter(Boolean) }); }
@@ -234,6 +234,7 @@ export function extractSnapshot(wb) {
 
   // ---- v29: FD / RD register, Month Close, gratuity, Coast FIRE, Home targets, plan ages straight from Settings
   out.v29 = !!(wb.tables && wb.tables.tblDeposits && wb.tables.tblMonthClose);
+  { const v = wb.get('Settings', 'C4'); out.schema = typeof v === 'number' ? v : Number(v) || null; } // tracker version (v30: one-tap update)
   out.deposits = tbl(wb, 'tblDeposits').filter(r => str(r['Deposit ID']) && str(r['Status']) !== 'Deleted').map(r => ({ id: str(r['Deposit ID']), name: str(r['Name']), bank: str(r['Bank']), whose: str(r['Whose']), kind: str(r['Kind']) || 'FD',
     amount: num(r['Amount (₹)']), rate: num(r['Rate %']), start: iso(r['Start']), maturity: iso(r['Maturity']), paysInto: str(r['Pays into']), status: str(r['Status']) || 'Active', closedOn: iso(r['Closed on']), received: num(r['Amount received (₹)']),
     notes: str(r['Notes']), by: str(r['Entered by']), row: r._row }));
@@ -246,7 +247,19 @@ export function extractSnapshot(wb) {
     if (gg) { const lab = {}; for (let r = 6; r <= 30; r++) { const l = str(at(gg, r, 1)); if (l) lab[l] = r; }
       const pick = (c, re) => { const k = Object.keys(lab).find(x => re.test(x)); return k ? at(gg, lab[k], C(c)) : null; };
       out.gratuity = {}; for (const [c, p] of [['C', 'Aravind'], ['D', 'Madhu']]) out.gratuity[p] = { company: str(pick(c, /^Company/)), joined: iso(pick(c, /^Joining date/)), basic: num(pick(c, /^Monthly basic/)), total: num(pick(c, /^Monthly total pay/)), fixedTerm: str(pick(c, /^Fixed-term/)) === 'Yes' }; } }
-  { const fp = sheetGrid(wb, 'FIRE Plan'); const cr = findRow(fp, C('I'), starts('Coast FIRE year'), 1, 60); out.coast = cr ? { year: at(fp, cr, C('J')), age: at(fp, cr + 1, C('J')) } : null; }
+  { const fp = sheetGrid(wb, 'FIRE Plan'); const cr = findRow(fp, C('I'), starts('Coast FIRE year'), 1, 60); out.coast = cr ? { year: at(fp, cr, C('J')), age: at(fp, cr + 1, C('J')) } : null;
+    // v30: the FIRE details screen (Wealth › Goals & FIRE › FIRE) reads the plan by its labels
+    out.firePlan = null;
+    if (fp) {
+      const v = (col, p, vc) => { const r = findRow(fp, C(col), starts(p), 1, 40); return r ? at(fp, r, C(vc)) : null; };
+      const hr = findRow(fp, 1, s => s.trim() === 'Year', 20, 80); const model = [];
+      if (hr) { let cc = null; for (let c = 1; c <= 30; c++) if (/^closing corpus/i.test(str(at(fp, hr, c)))) cc = c;
+        for (let r = hr + 1; r <= hr + 80 && cc; r++) { const y = num(at(fp, r, 1)); if (y === null) break; model.push({ year: y, age: num(at(fp, r, 2)), phase: str(at(fp, r, 4)), closing: num(at(fp, r, cc)) }); } }
+      out.firePlan = { start: num(v('A', 'Plan starts', 'B')), retireAge: num(v('A', 'Aravind stops working at age', 'B')), target: num(v('A', 'Monthly target', 'B')), corpusToday: num(v('A', 'Starting corpus', 'B')),
+        living: num(v('E', 'After retirement: living', 'F')), trips: num(v('E', 'After retirement: trips', 'F')), inflation: num(v('I', 'General inflation', 'J')),
+        retBefore: num(v('I', 'Blended return before retirement', 'J')), retAfter: num(v('I', 'Return after retirement', 'J')),
+        needed: num(v('I', 'Needed at retirement, in today', 'J')), projected: num(v('I', 'Projected at retirement, in today', 'J')), monthlyNeeded: num(v('I', 'Monthly investing needed', 'J')),
+        lasts: v('I', 'Money lasts until', 'J'), actual: num(v('I', 'Actual monthly investing', 'J')), model }; } }
   { const st = sheetGrid(wb, 'Settings'); const byLabel = {}; if (st) for (let r = 7; r <= 120; r++) { const l = str(at(st, r, 2)); if (l) byLabel[l] = { ref: 'C' + r, v: at(st, r, 3) }; }
     const g = l => byLabel[l] || null; out.settingCells = byLabel;
     const dob = num(g("Aravind's date of birth") && g("Aravind's date of birth").v);

@@ -65,7 +65,7 @@ export function viewHandover() {
   const log = logD ? logD.rows.map(r => ({ d: lpm.has('A' + r.r) ? lpm.get('A' + r.r) : (r.cells.A || {}).v, c: lpm.has('C' + r.r) ? lpm.get('C' + r.r) : (r.cells.C || {}).v })).filter(x => typeof x.d === 'number' && x.d > 0).sort((a, b) => b.d - a.d).slice(0, 5) : [];
   return { title: 'Handover', back: 'more', body: [
     h('div', { class: 'toolbar' }, seg(PEOPLE, p, v => { state.hoPerson = v; ctx.render(); }, 'Whose pack')),
-    h('p', { class: 'hint', style: { margin: '0 4px 12px' }, id: 'homode' }, mine ? 'Your pack: what ' + (p === 'Aravind' ? 'Madhu' : 'Aravind') + ' would need if you are not around. Never passwords, PINs or full numbers (last 4 digits only).' : 'View only: ' + p + ' edits this pack.'),
+    h('p', { class: 'hint', style: { margin: '0 4px 12px' }, id: 'homode' }, mine ? 'Your pack: what ' + (p === 'Aravind' ? 'Madhu' : 'Aravind') + ' would need if you are not around. Never passwords or PINs.' : 'View only: ' + p + ' edits this pack.'),
     card(p + "'s handover pack", null, h('ul', { class: 'list', id: 'holist' }, items)),
     card('Reviews', null,
       h('p', { class: 'hint', id: 'holast' }, last ? 'Last checked ' + F.date(last) + (daysSince(last) >= DAYS ? '. Due again now.' : '. Next check after ' + F.date(new Date(Date.parse(last) + DAYS * 864e5).toISOString().slice(0, 10)) + '.') : 'Not checked yet.'),

@@ -24,7 +24,6 @@ const stamp = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 const growth = (now, before) => (before ? (now - before) / Math.abs(before) : null);
 const gTag = g => g === null || !isFinite(g) ? h('span', { class: 'faint' }, '–') : tag((g >= 0 ? '+' : '−') + F.pct(Math.abs(g), 0), g >= 0 ? 'good' : 'warn');
 const need22 = () => { const s = ctx.snap(); if (s && s.v22) return true; toast('Upload tracker v22 to OneDrive first (it has the Income Entries sheet).', 'bad'); return false; };
-const LONG_DIGITS = /\d{5,}/; // full account numbers are never stored: last 4 digits only
 
 export function incomeCats() {
   const c = ((ctx.snap() || {}).incomeCats || []).filter(x => x.name && !/^Spare \d+$/i.test(x.name));
@@ -238,7 +237,6 @@ export function viewAddIncome() {
     if (!f.date) { toast('Pick a date', 'bad'); return; }
     let account = f.account;
     if (!newAcc.hidden && newAcc.value.trim()) account = newAcc.value.trim();
-    if (LONG_DIGITS.test(account) || LONG_DIGITS.test(notes.value)) { toast('Last 4 digits only. Never type a full account number.', 'bad'); return; }
     if (!need22()) return;
     const id = 'INC-' + uuid().slice(0, 8);
     await ctx.queue({ kind: 'addRow', table: 'tblIncome', idCol: 'Entry ID', what: 'income',

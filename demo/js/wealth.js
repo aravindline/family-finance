@@ -21,6 +21,21 @@ export function bucketOf(type, cls) {
   if (cls === 'Equity' || cls === 'REITs & InvITs') return 'ind';
   return null; // deposits, retirement and others are not "invested" buckets
 }
+// Which More topic a holding type belongs to (Aravind, 12 Nov 2026): funds under Mutual funds; bonds, NCDs, G-secs and
+// deposits under Cash & fixed income; gold, silver, SGBs, chit funds, gold schemes, lending, rental deposit, land and other
+// assets under Gold & other assets; shares, ETFs, REITs and InvITs under Equity.
+export const TOPIC_NAMES = { mf: 'Mutual funds', cash: 'Cash & fixed income', gold: 'Gold & other assets', equity: 'Equity' };
+export function topicOfType(type, cls) {
+  const t = String(type || '');
+  if (/^International fund|unlisted/i.test(t)) return 'equity';
+  if (/chit/i.test(t)) return 'gold';
+  if (isFund(t) && !/ETF/i.test(t)) return 'mf';
+  if (/\bDebt MF\b|Arbitrage MF|Liquid MF/i.test(t)) return 'mf';
+  if (isGold(t, cls) || /jeweller|lending|rental|land|property|vehicle|crypto|^other$/i.test(t) || cls === 'Other') return 'gold';
+  if (isBond(t) || /deposit|\bFD\b|\bRD\b|post office|sukanya|savings|cash/i.test(t) || cls === 'Debt' || cls === 'Cash & deposits') return 'cash';
+  if (cls === 'Retirement') return 'cash';
+  return 'equity';
+}
 const ymNow = () => new Date().toISOString().slice(0, 7);
 const monthsBetween = (a, b) => { const [y1, m1] = a.split('-').map(Number), [y2, m2] = b.split('-').map(Number); return (y2 - y1) * 12 + m2 - m1; };
 
@@ -59,7 +74,7 @@ export function items(s, opts = {}) {
   const add = (src, owner, name, type, c, value, cost, extra) => { if (!PEOPLE.includes(owner)) return; out.push({ src, owner, name, type, cls: c || cls[type] || 'Other', value: n(value), cost: n(cost), ...extra }); };
   for (const x of s.holdings || []) add('kite', x.owner, x.name, x.type, x.cls, x.current, x.invested);
   for (const x of s.otherHoldings || []) { if (x.linked) continue; add('other', x.owner, x.name, x.type, x.cls, x.current, x.invested, { platform: x.platform }); }
-  for (const x of s.intl || []) { const rate = fx[String(x.currency || 'USD').toUpperCase()] ?? fx.USD; const live = x.qty && x.price && rate ? x.qty * x.price * rate : x.current; add('intl', x.owner, x.name, 'US stocks', 'International equity', live, x.invested, { broker: x.broker }); }
+  for (const x of s.intl || []) { const rate = x.rateFix || (fx[String(x.currency || 'USD').toUpperCase()] ?? fx.USD); const live = x.qty && x.price && rate ? x.qty * x.price * rate : x.current; add('intl', x.owner, x.name, 'US stocks', 'International equity', live, x.invested, { broker: x.broker }); }
   const deps = s.deposits || [];
   for (const d of deps) add('deposit', d.whose, d.name, d.kind === 'RD' ? 'Recurring deposit' : d.kind === 'Corporate FD' ? 'Corporate FD' : 'Fixed deposit', d.kind === 'Corporate FD' ? (cls['Corporate FD'] || 'Debt') : 'Cash & deposits', depositValue(d), 0, { id: d.id });
   const fromRegister = /\(from the FD \/ RD list\)/i;

@@ -120,10 +120,7 @@ export function sheet(title, ...content) {
   return close;
 }
 
-// ---- input guards (QA 9 Nov): no full account/card/ID numbers in free text; amounts as plain numbers only
-export const LONG_DIGITS = /\d{5,}/;
-export const DIGITS_MSG = 'Last 4 digits only. Please don\'t type a full account, card or ID number.';
-export const hasLongDigits = (...t) => t.some(x => LONG_DIGITS.test(String(x || '')));
+// ---- amounts as plain numbers only
 // '1,250.50' -> 1250.5; '1e5', '12abc', '-5' -> NaN; rounded to 2 decimals
 export function parseAmount(raw) { const t = String(raw ?? '').replace(/[,₹\s]/g, ''); if (!/^\d+(\.\d+)?$/.test(t) && !/^\.\d+$/.test(t)) return NaN; return Math.round(Number(t) * 100) / 100; }
 // "Is ₹X right?" before saving an expense above ₹1 lakh. Resolves true when confirmed.

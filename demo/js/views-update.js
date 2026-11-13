@@ -123,13 +123,12 @@ export function viewMonthly() {
     const full = isBank && count(A.who) >= MAX_SAVINGS;
     return h('div', { class: 'card inset', id: 'oaaddform', style: { marginTop: '8px' } },
       fieldRow('Whose', null, seg(PEOPLE, A.who, v => { A.who = v; ctx.render(); }, 'Whose account')),
-      fieldRow('Name', 'e.g. HDFC savings ••1234 (last 4 digits only)', h('input', { class: 'field', id: 'oaaddname', maxlength: 40, value: A.name, oninput: e => { A.name = e.target.value; } })),
+      fieldRow('Name', 'e.g. HDFC savings', h('input', { class: 'field', id: 'oaaddname', maxlength: 40, value: A.name, oninput: e => { A.name = e.target.value; } })),
       fieldRow('Bank', null, h('input', { class: 'field', id: 'oaaddbank', maxlength: 40, value: A.bank, oninput: e => { A.bank = e.target.value; } })),
       full ? h('p', { class: 'warn-text' }, A.who + ' already has ' + MAX_SAVINGS + ' savings accounts here.') : null,
       h('div', { class: 'btns' }, h('button', { class: 'btn', onclick: () => { Wz.addForm = null; ctx.render(); } }, 'Cancel'),
         h('button', { class: 'btn primary', id: 'oaaddok', disabled: full, onclick: () => {
           const n = A.name.trim(); if (!n) return toast('Give the account a name', 'bad');
-          if (/\d{5,}/.test(n + A.bank)) return toast('Last 4 digits only. Never type a full account number.', 'bad');
           const r = free[0]; Wz.added[r.row] = A.who;
           setT('oaN' + r.row, r.name, n, 'Other Assets · name of row ' + r.row); if (A.bank.trim()) setT('oaB' + r.row, r.where, A.bank.trim(), n + ' · bank');
           Wz.addForm = null; ctx.render(); } }, 'Add')));
@@ -154,17 +153,16 @@ export function viewMonthly() {
     content = stepRows(step).length ? [h('p', { class: 'hint' }, 'Month-end balance of each account, and cash at home. This balance is the final figure, also when an FD or RD paid into it.'), oaRows(step), addBox(step)]
       : [empty('No bank rows on the Other Assets sheet. Add them in More › Cash & fixed income.')];
   } else if (step === S_FD) {
-    content = s.v29 ? fdStep(ym) : stepRows(step).length ? [h('p', { class: 'hint' }, 'Month-end value of each FD / RD. Leave unchanged if the same.'), oaRows(step), addBox(step)]
-      : [empty('No FD / RD rows on the Other Assets sheet. Add them in More › Cash & fixed income.')];
+    content = fdStep(ym);
   } else if (step === S_LOANS) {
     const rows = inp.loans;
     content = rows.length ? [h('p', { class: 'hint' }, 'Outstanding at month-end, from the lender\'s statement.'), ...rows.map(r => h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, show(r.name.v)), h('div', { class: 'set-d' }, show(r.lender.v))),
       h('div', { class: 'set-c' }, r.aravind.f ? null : pbox('Aravind', moneyInput('ln-a-' + r.row, val('lnA' + r.row, 'Loans', r.aravind), show(r.name.v) + ', Aravind', v => setE('lnA' + r.row, 'Loans', r.aravind, v, show(r.name.v) + ' · Aravind outstanding'))),
         r.madhu.f ? null : pbox('Madhu', moneyInput('ln-m-' + r.row, val('lnM' + r.row, 'Loans', r.madhu), show(r.name.v) + ', Madhu', v => setE('lnM' + r.row, 'Loans', r.madhu, v, show(r.name.v) + ' · Madhu outstanding'))))))] : [empty('No loans on the Loans sheet.')];
   } else if (step === S_SAVED) {
-    content = s.v29 ? savedStep(s, ym, row, E, fillM, mField, pendingPaste) : savedStepOld(s, ym, row, E, mField, setE, pendingPaste);
+    content = savedStep(s, ym, row, E, fillM, mField, pendingPaste);
   } else {
-    const nw = s.netWorth || {}; const fig = s.v29 ? closeFigures(s, ym, E) : null;
+    const nw = s.netWorth || {}; const fig = closeFigures(s, ym, E);
     if (fig && !Wz.nwAuto) { Wz.nwAuto = true; fillM('nwA', fig.Aravind.nw); fillM('nwM', fig.Madhu.nw); }
     const changes = Object.values(E).filter(e => !sameV(e.value, e.base));
     content = [h('p', { class: 'hint' }, fig ? 'Month-end net worth for the history chart, worked out from the steps before (all assets less loans). The tracker\'s own figure is shown too; it updates after Excel recalculates.' : 'Month-end net worth for the history chart. The tracker\'s current figure is shown; it updates after Excel recalculates.'),
@@ -172,7 +170,7 @@ export function viewMonthly() {
       h('div', { class: 'btns', style: { marginTop: '8px' } }, h('button', { class: 'btn', onclick: () => { if (nw.aravind !== null && !inp.monthlyFormula.nwA) setE('mnwA', MT, row.cols.nwA, String(Math.round(nw.aravind)), (L.nwA || 'Aravind net worth') + ' · ' + mon); if (nw.madhu !== null && !inp.monthlyFormula.nwM) setE('mnwM', MT, row.cols.nwM, String(Math.round(nw.madhu)), (L.nwM || 'Madhu net worth') + ' · ' + mon); ctx.render(); } }, 'Use the tracker\'s figures')),
       h('div', { class: 'label-sm', style: { marginTop: '14px' } }, 'Changes to save'),
       changes.length ? h('ul', { class: 'list' }, changes.map(e => h('li', { class: 'li wrap' }, h('div', { class: 'body' }, h('div', { class: 'ttl' }, e.label), h('div', { class: 'sub' }, e.sheet + ' ' + e.ref)),
-        h('div', { class: 'end num' }, e.value === '' ? 'blank' : e.text ? e.value : F.inr(e.value), h('div', { class: 'sub' }, 'was ' + (e.base === null || e.base === undefined || e.base === '' ? 'blank' : e.text ? String(e.base) : F.inr(e.base))))))) : empty('No changes yet.'),
+        h('div', { class: 'end num' }, e.value === '' ? 'blank' : e.date ? F.date(serialToISO(e.value)) : e.text ? e.value : F.inr(e.value), h('div', { class: 'sub' }, 'was ' + (e.base === null || e.base === undefined || e.base === '' ? 'blank' : e.date && typeof e.base === 'number' ? F.date(serialToISO(e.base)) : e.text ? String(e.base) : F.inr(e.base))))))) : empty('No changes yet.'),
       h('label', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, 'Mark balances as updated today'), h('div', { class: 'set-d' }, 'Sets "Last updated" on Other Assets and Loans so the Health Check is happy.')),
         h('input', { type: 'checkbox', id: 'markdates', checked: Wz.markDates !== false, onchange: e => { Wz.markDates = e.target.checked; } }))];
   }
@@ -186,10 +184,7 @@ export function viewMonthly() {
       const d = inp.dates[k]; if (!d) continue; if (!changes.some(c => c.sheet === sh)) continue;
       (bySheet[sh] = bySheet[sh] || []).push({ ref: d.ref, base: d.v ?? null, value: todaySerial(), label: 'Last updated' });
     }
-    let rows = false;
-    if (s.v29) { await saveClose(s, ym, E, Wz.sv || {}); rows = true; }
-    else if (s.v27) { await saveInvestedHist(s, ym); rows = true; }
-    if (!Object.keys(bySheet).length && !rows) { toast('Nothing changed'); return; }
+    await saveClose(s, ym, E, Wz.sv || {});
     for (const [sheet, cells] of Object.entries(bySheet)) await ctx.queue({ kind: 'setCells', sheet, cells, title: 'Month-end update · ' + mon });
     state.wiz = null; ctx.scheduleSync(3000); toast(mon + ' closed. It reaches the tracker with the next sync.'); ctx.go('home');
   };
@@ -209,9 +204,16 @@ function intlStep(s, E, setE) {
   const meta = new Map((s.intl || []).map(x => [x.row, x]));
   if (!rows.length) return [h('p', { class: 'hint' }, 'No international holdings yet. Add them in More › Equity › International holdings.')];
   const groups = {}; for (const r of rows) { const x = meta.get(r.r) || {}; const b = x.broker || s.intlPlatform || 'INDmoney'; (groups[b] = groups[b] || []).push({ r, x }); }
-  const out = [h('p', { class: 'hint' }, 'Today\'s price of each stock, in its own currency, broker by broker. Leave a box as it is if the price has not changed.')];
+  // v30: each broker has its own "holdings as on" date (main platform: C6; other brokers: AA13:AA22)
+  const main = s.intlPlatform || 'INDmoney'; const bset = (s.forms && s.forms.brokers && s.forms.brokers.rows) || []; const iset = s.forms && s.forms.intlset && s.forms.intlset.cells;
+  const dateCell = b => { if (b === main) return iset && iset.C6 && iset.C6.in ? { ref: 'C6', v: iset.C6.v } : null; const r = bset.find(x => x.cells.Y && show(x.cells.Y.v) === b); return r && r.cells.AA && r.cells.AA.in ? { ref: 'AA' + r.r, v: r.cells.AA.v } : null; };
+  const dateBox = (b, cell) => { const k = 'ibd' + cell.ref; const curV = E[k] ? E[k].value : cur('Intl Holdings', cell); const txt = typeof curV === 'number' ? serialToISO(curV) : '';
+    return fieldRow('Holdings as on', b, h('input', { type: 'date', class: 'field', id: 'ibd-' + cell.ref, 'aria-label': b + ' holdings as on', value: txt, onchange: e => { const v = e.target.value; E[k] = { sheet: 'Intl Holdings', ref: cell.ref, base: cell.v, value: v ? isoToSerial(v) : '', label: b + ' · holdings as on', text: true, date: true }; } })); };
+  const out = [h('p', { class: 'hint' }, 'Today\'s price of each stock, in its own currency, broker by broker, and the date of each broker\'s holdings. Leave a box as it is if nothing has changed.')];
   for (const [b, list] of Object.entries(groups)) {
-    out.push(h('div', { class: 'label-sm', style: { marginTop: '12px' } }, b));
+    out.push(h('div', { class: 'label-sm', style: { marginTop: '12px' }, 'data-broker': b }, b));
+    const dc = dateCell(b); if (dc) out.push(dateBox(b, dc));
+    else if (b !== main) out.push(h('p', { class: 'hint' }, 'Add ' + b + ' in More › Equity › International brokers to keep its own date, owner and rate.'));
     for (const { r, x } of list) { const c = r.cells.F; if (!c || !c.in) continue; const ref = { ref: 'F' + r.r, v: c.v };
       out.push(fieldRow(show(r.cells.A.v), [x.owner, x.qty ? x.qty + ' shares' : null, x.currency || 'USD'].filter(Boolean).join(' · '),
         moneyInput('ip-' + r.r, E['ip' + r.r] ? E['ip' + r.r].value : cur('Intl Holdings', ref), show(r.cells.A.v) + ' price', v => setE('ip' + r.r, 'Intl Holdings', ref, v, show(r.cells.A.v) + ' · price (' + (x.currency || 'USD') + ')')))); }
@@ -268,39 +270,6 @@ async function saveClose(s, ym, E, sv) {
   }
 }
 
-// ---- before tracker v29: invested from the Invested History snapshot (family totals), as in 0.10.0
-const fundIsDebt = t => /debt|arbitrage|liquid|gilt|money market|overnight|bond/i.test(t || '');
-export function investedNow(s) {
-  const o = { ind: 0, eqf: 0, debt: 0, intl: 0 };
-  for (const x of s.holdings || []) { const t = x.type || ''; const v = Number(x.invested) || 0; if (/\bMF\b|fund/i.test(t)) o[fundIsDebt(t) ? 'debt' : 'eqf'] += v; else if (!/gold|SGB|bond/i.test(t)) o.ind += v; }
-  for (const x of s.otherHoldings || []) { if (x.linked) continue; const t = x.type || ''; const v = Number(x.invested) || 0; if (!/\bMF\b|fund/i.test(t) || /gold/i.test(t)) continue; o[fundIsDebt(t) ? 'debt' : 'eqf'] += v; }
-  for (const x of s.intl || []) o.intl += Number(x.invested) || 0;
-  for (const k of Object.keys(o)) o[k] = Math.round(o[k]);
-  return o;
-}
-export function investedDelta(s, ym) {
-  const now = investedNow(s); const prev = (s.investedHist || []).filter(r => r.month < ym).sort((a, b) => a.month.localeCompare(b.month)).pop();
-  if (!prev) return { now, prev: null };
-  const d = {}; for (const k of Object.keys(now)) d[k] = now[k] - (prev[k] || 0);
-  return { now, prev, d, equity: d.ind + d.eqf, intl: d.intl, debt: d.debt };
-}
-function savedStepOld(s, ym, row, E, mField, setE, pendingPaste) {
-  const Wz = state.wiz; const inp = s.inputs; const L = inp.monthlyLabels || {}; const MT = inp.monthlySheet || 'Monthly Tracker'; const dl = investedDelta(s, ym);
-  if (dl.d && !Wz.auto) { Wz.auto = true; for (const [k, v] of [['equity', dl.equity], ['intl', dl.intl], ['debt', dl.debt]]) { const c = row.cols[k]; if (c && !inp.monthlyFormula[k] && !E['m' + k] && (c.v === null || c.v === undefined || c.v === '')) setE('m' + k, MT, c, String(v), (L[k] || k) + ' · ' + F.monthLabel(row.month, true)); } }
-  const note = !s.v27 ? h('p', { class: 'warn-text' }, 'Your tracker is older than v27, so "invested this month" can\'t be worked out. Type the figures yourself.')
-    : dl.d ? h('div', { class: 'hint', id: 'autoinv' }, 'Worked out from the invested amount (buy cost) since ' + F.monthLabel(dl.prev.month, true) + '. Sales show as minus. Change any box if needed.')
-    : h('p', { class: 'hint', id: 'autoinv' }, 'First month: today\'s invested amounts are saved when you close the month, and from next month these fill in by themselves.');
-  const epfRow = epfLine(s, ym, row) || mField('epf');
-  return [h('p', { class: 'hint' }, 'What went into each bucket this month (₹).'), note, pendingPaste ? h('p', { class: 'warn-text' }, 'A holdings paste is still waiting to sync. Sync first so these figures include it.') : null,
-    h('div', { class: 'label-sm', style: { marginTop: '10px' } }, 'Filled for you · check'), ...['equity', 'intl', 'debt'].map(k => mField(k, 'From Kite, CAS and Intl Holdings')), epfRow,
-    h('div', { class: 'label-sm', style: { marginTop: '14px' } }, 'Type if any'), mField('bank'), mField('gold'), mField('reits'), ...['spare1', 'spare2'].filter(k => spareUsed(row, k)).map(k => mField(k))];
-}
-async function saveInvestedHist(s, ym) {
-  const now = investedNow(s); const vals = { 'Indian equity (₹)': now.ind, 'Equity funds (₹)': now.eqf, 'Debt & arbitrage funds (₹)': now.debt, 'International (₹)': now.intl, 'Saved on': new Date().toISOString().slice(0, 16).replace('T', ' '), 'Saved by': ctx.who() || '' };
-  const had = (s.investedHist || []).find(r => r.month === ym);
-  if (had) await ctx.queue({ kind: 'setRow', table: 'tblInvestedHist', idCol: 'Month', id: ym, changes: vals, base: { 'Indian equity (₹)': had.ind, 'Equity funds (₹)': had.eqf, 'Debt & arbitrage funds (₹)': had.debt, 'International (₹)': had.intl } });
-  else await ctx.queue({ kind: 'addRow', table: 'tblInvestedHist', idCol: 'Month', values: Object.assign({ Month: ym }, vals), what: 'invested', summary: 'Invested amounts · ' + F.monthLabel(ym, true) });
-}
 const sameV = (a, b) => { const ea = a === null || a === undefined || a === '', eb = b === null || b === undefined || b === ''; if (ea || eb) return ea && eb; if (typeof a === 'string' && Number.isNaN(Number(a))) return a === String(b); return Number(a) === Number(b); };
 function defaultMonth(inp) { const d = new Date(); const lm = new Date(d.getFullYear(), d.getMonth() - 1, 1); const key = lm.getFullYear() + '-' + String(lm.getMonth() + 1).padStart(2, '0') + '-01'; const r = inp.monthly.find(x => x.month === key); return (r || inp.monthly[inp.monthly.length - 1]).month; }
 

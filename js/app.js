@@ -25,8 +25,9 @@ import * as TV from './views-topics.js';
 import * as V12 from './views-v12.js';
 import * as MV from './views-move.js';
 import * as V13 from './views-v13.js';
+import * as V14 from './views-v14.js';
 
-export const APP_VERSION = '0.13.0 (Home tiles, FD / RD, gratuity)';
+export const APP_VERSION = '0.14.0 (FIRE details, one-tap tracker update)';
 const $app = document.getElementById('app');
 
 // ---------- appearance (kept outside the vault so the lock screen matches)
@@ -149,7 +150,7 @@ setInterval(() => { if (V.isUnlocked() && navigator.onLine && document.visibilit
 // ---------- shell: top bar (title, sync status, alerts) and navigation
 const TABS = [['home', 'Home', 'home'], ['spend', 'Money', 'spend'], ['add', '', 'plus'], ['wealth', 'Wealth', 'wealth'], ['more', 'More', 'more']];
 const TAB_OF = { home: 'home', spend: 'spend', addexpense: 'spend', addincome: 'spend', income: 'spend', reports: 'spend', recurring: 'spend', events: 'spend', activity: 'home', conflicts: 'home',
-  wealth: 'wealth', plan: 'wealth', alerts: 'wealth', checks: 'wealth', lent: 'more', protection: 'more', documents: 'more', settings: 'more', more: 'more', changelock: 'more', backup: 'more', restore: 'more',
+  wealth: 'wealth', plan: 'wealth', fire: 'wealth', alerts: 'wealth', checks: 'wealth', lent: 'more', protection: 'more', documents: 'more', settings: 'more', more: 'more', changelock: 'more', backup: 'more', restore: 'more',
   monthly: 'more', deposits: 'more', gratuity: 'more', caticons: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more' };
 function syncPill() {
   const st = V.get('sync', 'state') || {}; const pending = V.all('outbox').length; const conflicts = V.all('conflict').length;
@@ -250,7 +251,7 @@ function go(view, opts = {}) { const prev = state.view; state.view = view; if (v
   try { if (V.isUnlocked() && prev !== view && !['lock', 'setup', 'forgot'].includes(view)) history[opts.replace ? 'replaceState' : 'pushState']({ v: view }, ''); } catch (e) { /* ignore */ }
   if (V.isUnlocked() && TAB_OF[view] && !NO_REOPEN.includes(view)) saveSettings({ lastView: view, lastTab: Object.assign({}, state.tab), lastCtx: REOPEN_KEYS.reduce((o, k) => (state[k] !== undefined && state[k] !== null ? Object.assign(o, { [k]: state[k] }) : o), {}) }).catch(() => {}); }
 // what a screen needs to show itself again after the app was locked (which block, which More topic, which person)
-const REOPEN_KEYS = ['formId', 'formGroup', 'topic', 'fromTopic', 'formBack', 'iconKind', 'person', 'moneyTab'];
+const REOPEN_KEYS = ['formId', 'formGroup', 'topic', 'fromTopic', 'formBack', 'iconKind', 'person', 'moneyTab', 'formTopic', 'formTitle', 'formSub'];
 
 // Windows Hello without PRF: explain the weaker way and turn it on only if the person agrees
 function deviceKeySheet(raw, credId) {
@@ -398,9 +399,9 @@ async function viewSettings() {
       row('Tips', 'Every one-time tip in one place.', h('button', { class: 'btn', id: 'sethelp', onclick: () => go('help') }, 'Open'))),
     h('h2', { class: 'sec-h', id: 'advanced' }, 'Advanced'),
     CONFIG.demo ? null : installCard(),
-    h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'New tracker version')),
-      h('p', { class: 'hint' }, 'When Claude sends a newer tracker, move everything you entered into it. Your current file keeps its data.'), h('div', { class: 'spacer' }),
-      h('div', { class: 'btns' }, h('button', { class: 'btn', id: 'setmove', onclick: () => go('move') }, 'Move to a new tracker version'))),
+    h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Tracker version')),
+      h('p', { class: 'hint' }, snap() && snap().schema ? 'Your tracker is v' + snap().schema + (snap().schema < MV.TEMPLATE.version ? '. v' + MV.TEMPLATE.version + ' is ready: one tap carries all your entries into it.' : ', the latest.') : 'Sync first to see the version.'), h('div', { class: 'spacer' }),
+      h('div', { class: 'btns' }, h('button', { class: 'btn' + (snap() && snap().schema < MV.TEMPLATE.version ? ' primary' : ''), id: 'setmove', onclick: () => go('move') }, 'Update the tracker'))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Backup')),
       h('p', { class: 'hint' }, 'An encrypted file that only your current PIN or passphrase can open. Keep it in OneDrive.'), h('div', { class: 'spacer' }),
       h('div', { class: 'btns' }, h('button', { class: 'btn', onclick: () => go('backup') }, 'Export backup'), h('button', { class: 'btn', onclick: () => go('restore') }, 'Import backup'))),
@@ -410,7 +411,7 @@ async function viewSettings() {
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Reset')),
       h('p', { class: 'hint' }, 'Deletes everything stored on this device. The tracker in OneDrive is not touched.'), h('div', { class: 'spacer' }),
       h('button', { class: 'btn danger', onclick: () => go('forgot') }, 'Reset this device')),
-    h('p', { class: 'hint', style: { margin: '16px 4px' } }, 'Version ' + APP_VERSION + '. No analytics, no trackers, no third-party servers. Never type full account or card numbers, PAN, Aadhaar or passport numbers: last 4 digits only.'),
+    h('p', { class: 'hint', style: { margin: '16px 4px' } }, 'Version ' + APP_VERSION + '. No analytics, no trackers, no third-party servers.'),
   ];
   (seq === renderSeq) && shell({ title: 'Settings', back: 'more', body });
 }
@@ -578,6 +579,7 @@ async function render() {
     case 'spend': return shell(M.viewSpend());
     case 'addexpense': return shell(M.viewAddExpense());
     case 'wealth': return shell(W.viewWealth());
+    case 'fire': return shell(V14.viewFire());
     case 'plan': state.tab.wealth = 'goals'; state.view = 'wealth'; return shell(W.viewWealth());
     case 'protection': return shell(W.viewProtection());
     case 'documents': return shell(W.viewDocuments());

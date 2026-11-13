@@ -8,7 +8,7 @@ import { FORMS } from './forms.js';
 import * as C2 from './views-c2.js';
 import { yearData, fyOf, fyLabel } from './views-year.js';
 
-// items: [kind, id, icon, title, sub]. kind: 'view' opens a screen, 'form' a tracker form, 'act' runs a function.
+// items: [kind, id, icon, title, sub, topic]. topic (forms only): show only that topic's rows of a shared sheet. kind: 'view' opens a screen, 'form' a tracker form, 'act' runs a function.
 export const TOPICS = [
   { id: 'expenses', icon: 'spend', title: 'Expenses', sub: 'Recurring, events, expense lists', items: [
     ['view', 'recurring', 'calendar', 'Recurring', 'Rent and other fixed amounts, added after you approve'],
@@ -16,22 +16,29 @@ export const TOPICS = [
     ['head', 'Lists'], ['form', 'expcatnames'], ['form', 'expcats'], ['form', 'paymodes'], ['icons', 'expense', 'c_tag', 'Category icons', 'Pick an icon for each expense category (this phone)']] },
   { id: 'income', icon: 'g_coin', title: 'Income', sub: 'Income lists', items: [
     ['head', 'Lists'], ['form', 'inccats'], ['form', 'incaccts'], ['icons', 'income', 'c_tag', 'Category icons', 'Pick an icon for each income category (this phone)']] },
-  { id: 'equity', icon: 'up', title: 'Equity', sub: 'Kite (India) and international stocks', items: [
+  { id: 'equity', icon: 'up', title: 'Equity', sub: 'Kite (India), international stocks, other equity', items: [
     ['view', 'kite', 'upload', 'Kite holdings', 'Paste each account from Kite; account names'],
-    ['form', 'intl', 'up', 'International holdings', 'US stocks (INDmoney), with platform, date and USD rate'],
+    ['form', 'intl', 'up', 'International holdings', 'US stocks, with the broker and currency of each'],
+    ['form', 'brokers', 'gear', 'International brokers', 'Each broker\'s owner, holdings date, currency and ₹ rate'],
     ['view', 'intlpaste', 'upload', 'International prices', 'Paste the INDmoney Current Holdings screen for US prices'],
     ['form', 'currencies', 'g_coin', 'Currencies', 'USD and up to 5 more (e.g. JPY), with today\'s ₹ rate'],
+    ['form', 'otherhold', 'pie', 'Other equity outside Kite', 'Equity ETFs, REITs, InvITs and shares from the CAS, unlisted shares, smallcase / PMS', 'equity'],
     ['head', 'Sectors'], ['form', 'sectors'], ['form', 'sectorlist']] },
   { id: 'mf', icon: 'pie', title: 'Mutual funds', sub: 'Equity, debt and arbitrage funds', items: [
-    ['view', 'cas', 'doc', 'CAS statement', 'Upload the monthly CDSL PDF: funds in folios and in demat, and a quantity check'],
-    ['form', 'otherhold', 'pie', 'Holdings outside demat', 'MF folios, bonds, digital gold or silver, chit funds, gold schemes, P2P lending']] },
-  { id: 'cash', icon: 'bank', title: 'Cash & fixed income', sub: 'Bank, cash, FD / RD, EPF, gratuity, NPS, money lent', items: [
-    ['form', 'assets', 'bank', 'Bank, cash and other balances', 'Savings accounts, cash at home, rental deposit, NPS, PPF and more'],
+    ['view', 'cas', 'doc', 'CAS statement', 'Upload the monthly CDSL PDF: every holding in it, and a quantity check'],
+    ['form', 'otherhold', 'pie', 'Mutual fund folios', 'Funds held outside demat', 'mf']] },
+  { id: 'cash', icon: 'bank', title: 'Cash & fixed income', sub: 'Bank, cash, bonds, FD / RD, EPF, gratuity, NPS, money lent', items: [
+    ['form', 'assets', 'bank', 'Bank, cash and balances', 'Savings accounts, cash at home, NPS, PPF and more', 'cash'],
+    ['form', 'otherhold', 'doc', 'Bonds, NCDs and G-secs', 'Bonds (e.g. Wint Wealth), NCDs, G-secs, T-bills and SDLs', 'cash'],
     ['view', 'deposits', 'calendar', 'FD / RD', 'Each FD and RD once, with its maturity; matured and closed ones'],
     ['view', 'epf', 'bank', 'EPF', 'Opening balance, monthly amount for the year, interest when credited'],
     ['view', 'gratuity', 'g_coin', 'Gratuity', 'Company, joining date and basic + DA, for Aravind and Madhu'],
     ['view', 'lent', 'hand', 'Money lent', 'Who owes you, and when to follow up']] },
-  { id: 'gold', icon: 'g_coin', title: 'Gold & other assets', sub: 'Physical gold, vehicles; digital gold and schemes go in Mutual funds', items: [['form', 'gold'], ['form', 'vehicles']] },
+  { id: 'gold', icon: 'g_coin', title: 'Gold & other assets', sub: 'Gold, silver, SGBs, schemes, lending, deposits, land, vehicles', items: [
+    ['form', 'gold'],
+    ['form', 'otherhold', 'g_coin', 'Gold, silver and other holdings', 'SGBs, gold and silver ETFs, digital gold or silver, jeweller gold schemes, chit funds, P2P and other lending', 'gold'],
+    ['form', 'assets', 'bank', 'Rental deposit, land and other assets', 'Rental deposit, land / property, physical silver and other assets', 'gold'],
+    ['form', 'vehicles']] },
   { id: 'loans', icon: 'loan', title: 'Loans', sub: 'Outstanding, rate, EMI and dates', items: [['form', 'loans']] },
   { id: 'fire', icon: 'flame', title: 'FIRE & goals', sub: 'Goals, FIRE assumptions', items: [['form', 'goals'], ['form', 'settings', 'gear']] },
   { id: 'yearly', icon: 'shield', title: 'Yearly & one-time', sub: 'Insurance, documents, handover, year in review', items: [
@@ -99,7 +106,7 @@ export function viewTopic() {
     else if (it[0] === 'topic') list.push(row(it[1] + '-link', it[2], it[3], it[4], () => { state.topic = it[1]; ctx.render(); window.scrollTo(0, 0); }));
     else if (it[0] === 'icons') list.push(row('icons-' + it[1], it[2], it[3], it[4], () => { state.iconKind = it[1]; state.fromTopic = 'caticons'; ctx.go('caticons'); }));
     else if (it[0] === 'act') list.push(row(it[1], it[2], it[3], it[4], () => ctx.lockNow()));
-    else { const f = FORMS.find(x => x.id === it[1]); if (!f) continue; list.push(row(f.id, it[2] || 'edit', it[3] || f.title, s ? (it[4] ? it[4] + ' · ' : '') + formStatus(f).text : 'Sync with the tracker first', () => { state.formId = f.id; ctx.go('form'); })); }
+    else { const f = FORMS.find(x => x.id === it[1]); if (!f) continue; list.push(row(f.id, it[2] || 'edit', it[3] || f.title, s ? (it[4] ? it[4] + ' · ' : '') + formStatus(f, it[5] || null).text : 'Sync with the tracker first', () => { state.formId = f.id; state.formTopic = it[5] || null; state.formTitle = it[5] ? it[3] : null; state.formSub = it[5] ? it[4] : null; ctx.go('form'); })); }
   }
   const hl = headline(t.id, s);
   const waiting = ctx.V.all('outbox').filter(o => o.kind === 'setCells').length;

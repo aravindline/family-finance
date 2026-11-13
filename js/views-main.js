@@ -8,7 +8,7 @@ import { streakChip, activity, activityList, dueItems, approve, skip } from './v
 import { recapCard, openStory, openRecap, hasRecap, recapMonth } from './views-insight.js';
 import * as C2 from './views-c2.js';
 import { addSwitch, forPill, incomeList, viewIncome, micButton, amountRow, voiceSummary, parseVoice } from './views-income.js';
-import { swipeable, parseAmount, hasLongDigits, DIGITS_MSG, confirmAmount } from './ui.js';
+import { swipeable, parseAmount, confirmAmount } from './ui.js';
 import { handoverItem } from './views-handover.js';
 import { homeTiles } from './views-v13.js';
 
@@ -313,7 +313,6 @@ export function viewAddExpense() {
     if (!(amount > 0)) { toast('Type an amount, like 250 or 1,250.50', 'bad'); amt.focus(); return; }
     if (!f.category) { toast('Pick a category', 'bad'); return; }
     if (!f.date) { toast('Pick a date', 'bad'); return; }
-    if (hasLongDigits(notes.value)) { toast(DIGITS_MSG, 'bad'); notes.focus(); return; }
     if (amount > 100000 && !(ed && Number(ed.amount) === amount) && !(await confirmAmount(amount, F.inr))) { amt.focus(); return; }
     const vals = { by: f.by, date: f.date, amount, category: f.category, sub: f.sub, mode: f.mode, notes: notes.value.trim(), event: f.event || '' };
     if (vals.event && !(ctx.snap() || {}).v21) { toast('Events need tracker v21 in OneDrive first', 'bad'); return; }

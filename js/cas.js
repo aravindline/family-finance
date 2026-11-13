@@ -1,11 +1,45 @@
 // CDSL CAS (Consolidated Account Statement) reader. Input: the PDF's text as lines (built by views-cas.js with pdf.js).
-// Output: demat holdings per account and mutual fund folios. Account and folio numbers are cut to their LAST 4 digits
+// Output: demat holdings per account (each with its kind) and mutual fund folios. Account and folio numbers are cut to their LAST 4 digits
 // here, before anything else sees them; the full numbers are never kept.
 const n = s => { const t = String(s ?? '').replace(/,/g, ''); if (!/^-?\d+(\.\d+)?$/.test(t)) return null; return Number(t); };
 const last4 = s => { const d = String(s || '').replace(/\D/g, ''); return d ? d.slice(-4) : ''; };
 const ISIN = /\b(IN[A-Z0-9]{9}\d)\b/;
 const MON = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
 const isoOf = s => { let m = /(\d{2})-(\d{2})-(\d{4})/.exec(s); if (m) return m[3] + '-' + m[2] + '-' + m[1]; m = /(\d{2})-([A-Za-z]{3})-(\d{4})/.exec(s); if (m && MON[m[2].toUpperCase()]) return m[3] + '-' + String(MON[m[2].toUpperCase()]).padStart(2, '0') + '-' + m[1]; return null; };
+
+// What a demat holding is, from its ISIN and name (app 0.14.0: every holding in the CAS is accounted for, Aravind 12 Nov 2026).
+// ISIN: IN + issuer type (E company, F mutual fund, a digit = central or state government) + issuer code + security type (2
+// digits, 01 equity, 04 preference, 07/08 debentures and bonds) + serial + check digit. Names settle what the code leaves open.
+export const KINDS = {
+  share: { label: 'Share', type: 'Stock' }, pref: { label: 'Preference share', type: 'Stock' }, rights: { label: 'Rights entitlement / warrant', type: 'Stock' },
+  etf: { label: 'Equity ETF', type: 'Equity ETF' }, etfGold: { label: 'Gold ETF', type: 'Gold ETF' }, etfSilver: { label: 'Silver ETF', type: 'Silver ETF' },
+  etfDebt: { label: 'Debt ETF', type: 'Debt MF' }, etfIntl: { label: 'International ETF', type: 'International fund / ETF' }, mf: { label: 'Mutual fund', type: null },
+  sgb: { label: 'Sovereign Gold Bond', type: 'SGB' }, gsec: { label: 'Government security', type: 'Govt securities' }, bond: { label: 'Bond / NCD', type: 'Bonds' },
+  reit: { label: 'REIT', type: 'REIT' }, invit: { label: 'InvIT', type: 'InvIT' }, other: { label: 'Not recognised', type: 'Other' },
+};
+export function kindOf(isin, name) {
+  const u = String(name || '').toUpperCase(); const sec = String(isin).slice(7, 9);
+  if (/SOVEREIGN GOLD|\bSGB/.test(u)) return 'sgb';
+  if (/^IN\d/.test(isin)) return 'gsec'; // central and state government: G-secs, T-bills, SDLs
+  if (isin.startsWith('INF')) {
+    if (/\bETF\b|BEES\b|EXCHANGE TRADED/.test(u)) {
+      if (/SILVER/.test(u)) return 'etfSilver'; if (/GOLD/.test(u)) return 'etfGold';
+      if (/LIQUID|GILT|G-SEC|GSEC|BOND|SDL|DEBT|TREASURY|MONEY MARKET|CPSE BOND|PSU BOND|BHARAT BOND|1D RATE|OVERNIGHT/.test(u)) return 'etfDebt';
+      if (/NASDAQ|HANG SENG|S&P 500|MAFANG|FANG|GLOBAL|INTERNATIONAL|US |CHINA|JAPAN|TAIWAN/.test(u)) return 'etfIntl';
+      return 'etf';
+    }
+    return 'mf';
+  }
+  if (/\bREIT\b|REAL ESTATE INVESTMENT TRUST/.test(u)) return 'reit';
+  if (/\bINVIT\b|INFRASTRUCTURE INVESTMENT TRUST|INFRA(STRUCTURE)? TRUST/.test(u)) return 'invit';
+  if (/RIGHTS? ENTITLEMENT|\bWARRANTS?\b|\bPPS\b|PARTLY PAID/.test(u)) return 'rights';
+  if (sec === '04' || /PREF(ERENCE)?\b|\bPREF SH|CRPS|NCRPS|CCPS/.test(u)) return 'pref';
+  if (sec === '07' || sec === '08' || /\bNCDS?\b|DEBENTURE|\bBONDS?\b|SECURED|UNSECURED|\bSR\.? ?[IVX]+\b.*%|\d+(\.\d+)?\s?%|COMMERCIAL PAPER|\bCP\b|CERTIFICATE OF DEPOSIT/.test(u)) return 'bond';
+  if (sec === '01' || /LIMITED|\bLTD\b|EQUITY/.test(u)) return 'share';
+  return 'other';
+}
+// a coupon written in the name ("9.50% ... NCD", "SGB 2.50%"): used as "Interest % a year"
+export function couponOf(name) { const m = /(\d{1,2}(?:\.\d{1,3})?)\s?%/.exec(String(name || '')); const v = m ? Number(m[1]) : null; return v && v > 0 && v < 25 ? v / 100 : null; }
 
 export function parseCAS(lines) {
   const out = { asOn: null, accounts: [], folios: [], warnings: [] };
@@ -31,7 +65,7 @@ export function parseCAS(lines) {
           let name = toks.join(' '); let k = i + 1;
           while (k < lines.length && !ISIN.test(lines[k]) && !/Portfolio Value|^\s*$|Transactions|Holdings|ISIN/i.test(lines[k]) && !/\d/.test(lines[k].trim().slice(-1)) && lines[k].trim().length < 60) { name += ' ' + lines[k].trim(); k++; }
           const value = n(nums[nums.length - 1]), price = n(nums[nums.length - 2]), qty = n(nums[0]);
-          if (qty !== null && value !== null) acct.holdings.push({ isin: im[1], name: name.trim(), qty, price, value, kind: im[1].startsWith('INF') ? 'MF in demat' : im[1].startsWith('IN00') ? 'Govt security' : 'Share' });
+          if (qty !== null && value !== null) { const nm = name.trim(); acct.holdings.push({ isin: im[1], name: nm, qty, price, value, kind: kindOf(im[1], nm) }); }
         }
       }
       continue;
