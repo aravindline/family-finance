@@ -103,6 +103,7 @@ export function catIcon(name, size = 18) {
 
 // ---- toast and sheet
 export function toast(msg, kind = 'info', action = null) {
+  if (kind === 'bad' && window.__ffNoteError) window.__ffNoteError(msg);
   document.querySelectorAll('.toast').forEach(t => t.remove());
   const t = h('div', { class: 'toast ' + kind + (action ? ' has-action' : ''), role: 'status' }, h('span', {}, msg),
     action ? h('button', { class: 'toast-act', onclick: () => { t.remove(); action.fn(); } }, action.label) : null);

@@ -166,7 +166,7 @@ export function viewMonthly() {
     const nw = s.netWorth || {}; const fig = closeFigures(s, ym, E);
     if (fig && !Wz.nwAuto) { Wz.nwAuto = true; fillM('nwA', fig.Aravind.nw); fillM('nwM', fig.Madhu.nw); }
     const changes = Object.values(E).filter(e => !sameV(e.value, e.base));
-    content = [h('p', { class: 'hint' }, fig ? 'Month-end net worth for the history chart, worked out from the steps before (all assets less loans). The tracker\'s own figure is shown too; it updates after Excel recalculates.' : 'Month-end net worth for the history chart. The tracker\'s current figure is shown; it updates after Excel recalculates.'),
+    content = [h('p', { class: 'hint' }, fig ? 'Month-end net worth for the history chart, worked out from the steps before (all assets less loans). The tracker\'s own figure is shown too; it updates at the next sync.' : 'Month-end net worth for the history chart. The tracker\'s current figure is shown; it updates at the next sync.'),
       mField('nwA', 'Tracker now: ' + F.inr(nw.aravind)), mField('nwM', 'Tracker now: ' + F.inr(nw.madhu)),
       h('div', { class: 'btns', style: { marginTop: '8px' } }, h('button', { class: 'btn', onclick: () => { if (nw.aravind !== null && !inp.monthlyFormula.nwA) setE('mnwA', MT, row.cols.nwA, String(Math.round(nw.aravind)), (L.nwA || 'Aravind net worth') + ' · ' + mon); if (nw.madhu !== null && !inp.monthlyFormula.nwM) setE('mnwM', MT, row.cols.nwM, String(Math.round(nw.madhu)), (L.nwM || 'Madhu net worth') + ' · ' + mon); ctx.render(); } }, 'Use the tracker\'s figures')),
       h('div', { class: 'label-sm', style: { marginTop: '14px' } }, 'Changes to save'),

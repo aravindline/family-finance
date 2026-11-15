@@ -65,6 +65,7 @@ const PRIV = [
   ['PIN and passwords', 'Your PIN is never stored or sent. Your Microsoft password goes only to Microsoft\'s own page. A CAS statement password is typed each time and used only on this phone.'],
   ['Voice entry', 'Only when you tap the mic: Chrome turns your words into text through Google\'s speech service. If you prefer, type instead; nothing else uses it.'],
   ['Pastes and statements', 'Kite and INDmoney pastes and CAS statements are read on this phone. Only the figures you save reach your tracker file.'],
+  ['Problem reports', 'Only when you tap Send in Report a problem: your email app opens with the report, and you send it yourself. It holds no amounts, notes or tracker link.'],
   ['Leaving', 'Settings › Reset this device removes everything from this phone. Your tracker file stays in your OneDrive until you delete it.'],
   ['The code', 'The app\'s code is public, so anyone can check what it does.']];
 export function viewPrivacy() {

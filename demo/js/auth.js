@@ -37,6 +37,6 @@ export async function getToken(interactive = false) {
   catch (e) {
     needs = true;
     if (!interactive) throw new Error('Microsoft needs a quick re-confirm. Tap Re-confirm at the top to continue.');
-    await pca.acquireTokenRedirect({ scopes: CONFIG.scopes, account }); throw new Error('Signing in again…');
+    await pca.acquireTokenRedirect({ scopes: CONFIG.scopes, account, loginHint: account.username }); throw new Error('Signing in again…');
   }
 }

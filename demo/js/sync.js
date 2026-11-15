@@ -6,6 +6,7 @@ import { uuid } from './crypto.js';
 import { extractSnapshot } from './extract.js';
 import { isTidy, readTidy, toTidy, TIDY } from './kite.js';
 import { schemaVersion } from './migrate.js';
+import { recalcWorkbook } from './recalc.js';
 
 const DAILY = 'tblDaily', LOG = 'tblSyncLog', META = 'tblAppMeta';
 export class PreconditionFailed extends Error {}
@@ -143,7 +144,7 @@ export function lastAppWrite(wb) { try { const m = wb.tableRows(META).find(x => 
 // upgrade (optional): async bytes -> { bytes, from, to, copied, ... } carries the file into the newer tracker version the
 // app ships with, before any change is written (app 0.15.0: automatic tracker update). maxSchema: the newest tracker
 // version this app knows; a newer tracker is never written to (an older app on another phone must be refreshed first).
-export async function syncOnce({ transport, ops, who, device, maxTries = 3, lastEtag = null, upgrade = null, maxSchema = null }) {
+export async function syncOnce({ transport, ops, who, device, maxTries = 3, lastEtag = null, upgrade = null, maxSchema = null, recalc = recalcWorkbook }) {
   if (!ops.length && lastEtag && transport.meta) {
     const m = await transport.meta();
     if (m && m.eTag === lastEtag) return { applied: [], conflicts: [], logCount: 0, unchanged: true, etag: lastEtag, attempts: 0 };
@@ -161,9 +162,12 @@ export async function syncOnce({ transport, ops, who, device, maxTries = 3, last
     }
     const res = ops.length ? applyOutbox(wb, ops, who, device) : { applied: [], conflicts: [], logCount: 0 };
     res.upgraded = upgraded; res.upgradeError = upgradeError;
-    let newEtag = etag;
-    if (res.logCount || upgraded) { // nothing changed (or every change was already in the file): nothing is uploaded
-      const out = await wb.save();
+    // 0.15.1: the app works out every formula itself, so the figures (and the saved file) are current without Excel
+    res.recalc = null; res.recalcError = null;
+    if (recalc) { try { res.recalc = await recalc(wb); } catch (e) { res.recalcError = e.message || String(e); } }
+    let newEtag = etag; let finalBytes = bytes;
+    if (res.logCount || upgraded || (res.recalc && res.recalc.changed)) { // nothing changed (or every change was already in the file): nothing is uploaded
+      const out = await wb.save(); finalBytes = out;
       try { newEtag = (await transport.upload(out, etag)).etag; }
       catch (e) { if (e instanceof PreconditionFailed && attempt < maxTries) continue; throw e; } // someone saved meanwhile: start again on the new file
     }
@@ -171,8 +175,9 @@ export async function syncOnce({ transport, ops, who, device, maxTries = 3, last
     const entries = finalWb.tableRows(DAILY).filter(r => r['Entry ID'] || r.Date).map(rowToEntry);
     const snap = extractSnapshot(finalWb);
     const appWrite = lastAppWrite(finalWb);
-    snap.provisional = !!(appWrite && snap.fileModified && new Date(appWrite) > new Date(snap.fileModified));
-    return { ...res, entries, snapshot: snap, attempts: attempt, etag: newEtag };
+    snap.provisional = res.recalc ? false : res.recalcError ? true /* figures are only what Excel last saved */ : !!(appWrite && snap.fileModified && new Date(appWrite) > new Date(snap.fileModified));
+    if (res.recalc) snap.recalcAt = new Date().toISOString();
+    return { ...res, entries, snapshot: snap, attempts: attempt, etag: newEtag, bytes: finalBytes };
   }
 }
 
