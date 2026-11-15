@@ -13,6 +13,7 @@ export const TOPICS = [
   { id: 'expenses', icon: 'spend', title: 'Expenses', sub: 'Recurring, events, expense lists', items: [
     ['view', 'recurring', 'calendar', 'Recurring', 'Rent and other fixed amounts, added after you approve'],
     ['view', 'events', 'c_tag', 'Events', 'Trips, festivals, functions and what they cost'],
+    ['view', 'notes', 'doc', 'Month notes', 'Each month\'s "what I\'ll do better" notes, everyone\'s'],
     ['head', 'Lists'], ['form', 'expcatnames'], ['form', 'expcats'], ['form', 'paymodes'], ['icons', 'expense', 'c_tag', 'Category icons', 'Pick an icon for each expense category (this phone)']] },
   { id: 'income', icon: 'g_coin', title: 'Income', sub: 'Income lists', items: [
     ['head', 'Lists'], ['form', 'inccats'], ['form', 'incaccts'], ['icons', 'income', 'c_tag', 'Category icons', 'Pick an icon for each income category (this phone)']] },

@@ -363,7 +363,7 @@ table.cmp.inc td:first-child { white-space: nowrap; }
 /* large text on small phones */
 .tablewrap { max-width: 100%; overflow-x: auto; }
 .tile .t-v.tile-name { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
-.topbar h1 { white-space: normal; overflow-wrap: anywhere; line-height: 1.15; }
+.topbar h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: clamp(1.02rem, 4.8vw, 1.25rem); } /* one line, '…' if it does not fit (0.15.0) */
 .sticky-save .btn { white-space: nowrap; padding: 0 10px; }
 /* Wealth */
 .seg.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
@@ -422,3 +422,12 @@ ol.list { list-style: none; padding: 0; margin: 0; } .list.numbered .lead { min-
 details.card > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; }
 details.card > summary::after { content: '▾'; color: var(--muted); }
 details.card[open] > summary::after { content: '▴'; }
+/* kakeibo tag chip on the expense form (0.15.0): small and quiet; a tap changes it */
+.ktag { flex: none; min-height: 28px; padding: 0 10px; border-radius: 999px; border: 1px dashed var(--line); background: transparent; color: var(--muted); font-size: .74rem; font-weight: 600; cursor: pointer; }
+.ktag:active { background: var(--surface); }
+/* tables (0.15.0): figures never break; names wrap onto at most two lines */
+table.cmp td.num, table.cmp th.num { text-align: right; white-space: nowrap; overflow-wrap: normal; }
+table.cmp td:first-child { overflow-wrap: break-word; }
+table.cmp .nm { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.linkbtn { background: none; border: 0; padding: 6px 0; color: var(--brand); font-weight: 700; font-size: .84rem; cursor: pointer; min-height: 36px; }
+.notebody { white-space: pre-wrap; color: var(--text); }

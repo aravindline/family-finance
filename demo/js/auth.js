@@ -31,12 +31,12 @@ export async function signOut() { if (testMode()) { account = null; return; } if
 let needs = false;
 export const needsSignIn = () => needs;
 export async function getToken(interactive = false) {
-  if (testMode()) { if (CONFIG.testExpired && !interactive) { needs = true; throw new Error('Microsoft sign-in expired. Tap Sync to sign in again.'); } needs = false; return CONFIG.testToken; }
+  if (testMode()) { if (CONFIG.testExpired && !interactive) { needs = true; throw new Error('Microsoft needs a quick re-confirm. Tap Re-confirm at the top to continue.'); } needs = false; return CONFIG.testToken; }
   if (!account) throw new Error('Not signed in to Microsoft.');
   try { const t = (await pca.acquireTokenSilent({ scopes: CONFIG.scopes, account })).accessToken; needs = false; return t; }
   catch (e) {
     needs = true;
-    if (!interactive) throw new Error('Microsoft sign-in expired. Tap Sync to sign in again.');
+    if (!interactive) throw new Error('Microsoft needs a quick re-confirm. Tap Re-confirm at the top to continue.');
     await pca.acquireTokenRedirect({ scopes: CONFIG.scopes, account }); throw new Error('Signing in again…');
   }
 }

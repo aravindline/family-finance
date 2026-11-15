@@ -29,3 +29,21 @@ export function monthLabel(iso, long = false) { if (!iso) return '–'; const [y
 export function signed(n, f = inrShort) { if (n === null || n === undefined || isNaN(n)) return '–'; return (n > 0 ? '+' : '') + f(n).replace('−', '−'); }
 export function pp(n) { return n === null || n === undefined || isNaN(n) ? '–' : (n > 0 ? '+' : '') + (n * 100).toFixed(1) + ' pp'; }
 export function years(n) { if (n === null || n === undefined || isNaN(n)) return '–'; const y = Math.floor(n), m = Math.round((n - y) * 12); return y + ' y' + (m ? ' ' + m + ' m' : ''); }
+
+// Tight tables (0.15.0, Aravind 13 Nov 2026): only where figures do not fit, amounts get one decimal and % none;
+// a share under 1% shows as "<1%". Works on the text already shown, so every table uses the same rule.
+export function shortFig(s) {
+  const t = String(s);
+  const m = t.match(/^([+−-]?)₹\s?([\d,]+(?:\.\d+)?)(\s?(Cr|L))?$/);
+  if (m) {
+    const sign = m[1], v = Number(m[2].replace(/,/g, '')), unit = m[4];
+    if (unit) return sign + '₹' + v.toFixed(1) + ' ' + unit;
+    if (v >= 1e7) return sign + '₹' + (v / 1e7).toFixed(1) + ' Cr';
+    if (v >= 1e5) return sign + '₹' + (v / 1e5).toFixed(1) + ' L';
+    if (v >= 1e3) return sign + '₹' + (v / 1e3).toFixed(1) + 'k';
+    return t;
+  }
+  const p = t.match(/^([+−-]?)(\d+(?:\.\d+)?)%$/);
+  if (p) { const v = Number(p[2]); return v > 0 && v < 1 ? (p[1] && p[1] !== '+' ? p[1] : '') + '<1%' : p[1] + Math.round(v) + '%'; }
+  return t;
+}

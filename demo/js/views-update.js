@@ -9,6 +9,7 @@ import { epfBalance } from './views-v12.js';
 import { incomeList } from './views-income.js';
 import { isoToSerial, serialToISO } from './xlsx.js';
 import { uuid } from './crypto.js';
+import { noteField, saveNote } from './views-v15.js';
 
 const todaySerial = () => { const d = new Date(); return isoToSerial(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)); };
 const parseNum = v => { const t = String(v ?? '').replace(/[,₹\s]/g, '').replace('−', '-'); if (t === '') return ''; if (!/^-?(\d+(\.\d+)?|\.\d+)$/.test(t)) return NaN; return Math.round(Number(t) * 100) / 100; };
@@ -171,6 +172,7 @@ export function viewMonthly() {
       h('div', { class: 'label-sm', style: { marginTop: '14px' } }, 'Changes to save'),
       changes.length ? h('ul', { class: 'list' }, changes.map(e => h('li', { class: 'li wrap' }, h('div', { class: 'body' }, h('div', { class: 'ttl' }, e.label), h('div', { class: 'sub' }, e.sheet + ' ' + e.ref)),
         h('div', { class: 'end num' }, e.value === '' ? 'blank' : e.date ? F.date(serialToISO(e.value)) : e.text ? e.value : F.inr(e.value), h('div', { class: 'sub' }, 'was ' + (e.base === null || e.base === undefined || e.base === '' ? 'blank' : e.date && typeof e.base === 'number' ? F.date(serialToISO(e.base)) : e.text ? String(e.base) : F.inr(e.base))))))) : empty('No changes yet.'),
+      noteField(s, ym, Wz),
       h('label', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, 'Mark balances as updated today'), h('div', { class: 'set-d' }, 'Sets "Last updated" on Other Assets and Loans so the Health Check is happy.')),
         h('input', { type: 'checkbox', id: 'markdates', checked: Wz.markDates !== false, onchange: e => { Wz.markDates = e.target.checked; } }))];
   }
@@ -185,6 +187,7 @@ export function viewMonthly() {
       (bySheet[sh] = bySheet[sh] || []).push({ ref: d.ref, base: d.v ?? null, value: todaySerial(), label: 'Last updated' });
     }
     await saveClose(s, ym, E, Wz.sv || {});
+    if (Wz.note !== undefined && ctx.who()) await saveNote(s, ym, ctx.who(), Wz.note);
     for (const [sheet, cells] of Object.entries(bySheet)) await ctx.queue({ kind: 'setCells', sheet, cells, title: 'Month-end update · ' + mon });
     state.wiz = null; ctx.scheduleSync(3000); toast(mon + ' closed. It reaches the tracker with the next sync.'); ctx.go('home');
   };
