@@ -57,7 +57,7 @@ function previewCard(slots) {
   const per = Object.entries(accounts).filter(([, l]) => l.length).map(([c, l]) => c + ': ' + l.length);
   const save = async () => {
     await ctx.queue({ kind: 'kitePaste', accounts, replace: repl, asOf: isoToSerial(KD.date || isoToday()), title: 'Kite holdings · ' + what });
-    KD.text = ''; KD.preview = null; KD.slot = null; toast('Saved. Reaches the tracker on the next sync.', 'good'); ctx.render();
+    KD.text = ''; KD.preview = null; KD.slot = null; toast('Saved. Figures update at the next sync.', 'good'); ctx.render();
   };
   return card('Found ' + list.length + ' holdings', null,
     h('div', { class: 'kv', id: 'kiteprev' }, h('span', {}, 'For'), h('span', {}, what), KD.mode === 'web' ? [h('span', {}, 'By account'), h('span', {}, per.join(' · '))] : null,
@@ -82,7 +82,7 @@ export function viewIntlPaste() {
     if (lines.length < 3) return toast('Paste the Current Holdings screen first', 'bad');
     if (lines.length > 300) return toast('That is more than 300 lines. Paste only the Current Holdings screen.', 'bad');
     await ctx.queue({ kind: 'fillColumn', sheet: 'Intl Holdings', col: 'T', from: 13, to: 312, lines, date: { ref: 'C6', value: isoToSerial(isoToday()) }, title: 'INDmoney holdings paste' });
-    ID.text = ''; toast('Saved. Reaches the tracker on the next sync.', 'good'); history.back();
+    ID.text = ''; toast('Saved. Figures update at the next sync.', 'good'); history.back();
   };
   return { title: 'Intl', back: 'tracker', body: [h('h2', { class: 'formhead' }, 'INDmoney prices paste'),
     h('p', { class: 'hint', style: { margin: '0 4px 12px' } }, 'Fills the latest US prices for your international holdings. The holdings themselves are in More › Equity › International holdings.'),

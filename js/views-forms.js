@@ -199,21 +199,21 @@ export function viewFormEdit() {
       if (!blank(nm) && blank(ty)) { toast('Pick the asset type, so it shows under ' + TOPIC_NAMES[topicOn(f)] + '.', 'bad'); return; } }
     if (!cells.length) { drafts.delete(key); toast('No changes'); return history.back(); }
     await queueCells(f, cells, f.title + ' · ' + heading);
-    drafts.delete(key); toast('Saved. Reaches the tracker on the next sync.', 'good'); history.back();
+    drafts.delete(key); toast('Saved. Figures update at the next sync.', 'good'); history.back();
   };
   const clear = () => {
     const close = sheet('Clear this row?', h('p', {}, 'Empties the typed cells of "' + heading + '". Formulas and labels stay. You can type it again later.'),
       h('div', { class: 'btns' }, h('button', { class: 'btn danger', id: 'clearyes', onclick: async () => {
         const cells = f.fields.filter(fl => (r.cells[fl.c] || {}).in && !blank(cur(fl.c))).map(fl => ({ ref: fl.c + r.r, base: base(fl.c), value: '', label: fl.l }));
         close(); if (!cells.length) return history.back();
-        await queueCells(f, cells, f.title + ' · cleared ' + heading); drafts.delete(key); toast('Cleared. Reaches the tracker on the next sync.', 'good'); history.back();
+        await queueCells(f, cells, f.title + ' · cleared ' + heading); drafts.delete(key); toast('Cleared. Figures update at the next sync.', 'good'); history.back();
       } }, 'Clear'), h('button', { class: 'btn', onclick: () => close() }, 'Keep')));
   };
   const canClear = !f.noAdd && !state.formNew && f.fields.some(fl => (r.cells[fl.c] || {}).in && !blank(cur(fl.c)));
   return { title: shortTitle(f), back: 'form', body: [
     h('h2', { class: 'formhead', id: 'formhead' }, heading),
     card(null, null, h('div', { class: 'fstack', id: 'formfields' }, els)),
-    auto.length ? card('Worked out by the tracker', null, h('div', { class: 'kv' }, auto.flatMap(([x, val]) => [h('span', {}, x.l), h('span', {}, show(x.t, val))])), h('p', { class: 'hint', style: { marginTop: '8px' } }, provisional ? '≈ worked out by the app from what you typed; the tracker confirms it after Excel recalculates. Other figures are as Excel last calculated them.' : 'As Excel last calculated it. Changes show after the tracker is opened in Excel.')) : null,
+    auto.length ? card('Worked out by the tracker', null, h('div', { class: 'kv' }, auto.flatMap(([x, val]) => [h('span', {}, x.l), h('span', {}, show(x.t, val))])), h('p', { class: 'hint', style: { marginTop: '8px' } }, provisional ? '≈ worked out from what you typed; the full figures follow at the next sync.' : 'Worked out by the app at the last sync. A change shows after the next sync.')) : null,
     h('div', { class: 'sticky-save' }, h('button', { class: 'btn primary', style: { flex: 2 }, id: 'formsave', onclick: save }, 'Save'),
       canClear ? h('button', { class: 'btn', style: { flex: 1 }, id: 'formclear', onclick: clear }, 'Clear row') : null)] };
 }
@@ -241,13 +241,13 @@ function cellsForm(f, d) {
       if (!same(nv, cur(c.r))) cells.push({ ref: c.r, base: (d.cells[c.r] || {}).v, value: nv, label: c.l });
     }
     if (!cells.length) { drafts.delete(key); toast('No changes'); return history.back(); }
-    await queueCells(f, cells, f.title); drafts.delete(key); toast('Saved. Reaches the tracker on the next sync.', 'good'); history.back();
+    await queueCells(f, cells, f.title); drafts.delete(key); toast('Saved. Figures update at the next sync.', 'good'); history.back();
   };
   return { title: shortTitle(f), back: 'tracker', body: [
     h('h2', { class: 'formhead' }, f.title),
     h('p', { class: 'hint', style: { margin: '0 4px 12px' } }, f.sub + '.'),
     card(null, null, h('div', { class: 'fstack', id: 'formfields' }, els)),
-    auto.length ? card('Worked out by the tracker', null, h('div', { class: 'kv' }, auto.flatMap(([x, v]) => [h('span', {}, x.l), h('span', {}, show(x.t, v))])), h('p', { class: 'hint', style: { marginTop: '8px' } }, provisional ? '≈ worked out by the app from what you typed; the tracker confirms it after Excel recalculates.' : 'As Excel last calculated it.')) : null,
+    auto.length ? card('Worked out by the tracker', null, h('div', { class: 'kv' }, auto.flatMap(([x, v]) => [h('span', {}, x.l), h('span', {}, show(x.t, v))])), h('p', { class: 'hint', style: { marginTop: '8px' } }, provisional ? '≈ worked out from what you typed; the full figures follow at the next sync.' : 'Worked out by the app at the last sync.')) : null,
     h('div', { class: 'sticky-save' }, h('button', { class: 'btn primary', style: { flex: 1 }, id: 'formsave', onclick: save }, 'Save'))] };
 }
 
@@ -257,7 +257,7 @@ function settingsGroups(f, d) {
   for (const r of d.rows) { let g = groups.find(x => x.name === r.group); if (!g) groups.push(g = { name: r.group, rows: [] }); g.rows.push(r); }
   return { title: 'Plan', back: 'tracker', body: [
     h('h2', { class: 'formhead' }, 'Plan settings'),
-    h('p', { class: 'hint', style: { margin: '0 4px 12px' } }, 'Every planning assumption the tracker uses. Change one, and the plan follows after Excel recalculates.'),
+    h('p', { class: 'hint', style: { margin: '0 4px 12px' } }, 'Every planning assumption the tracker uses. Change one, and the plan follows at the next sync.'),
     card(null, null, h('ul', { class: 'list', id: 'setgroups' }, groups.map(g => { const empties = g.rows.filter(r => r.in && blank(valueOf(pend, r.ref, r.v))).length;
       return h('li', { class: 'li tap', onclick: () => { state.formGroup = g.name; ctx.go('formedit'); } }, h('div', { class: 'body' }, h('div', { class: 'ttl' }, g.name), h('div', { class: 'sub' }, g.rows.length + ' setting' + (g.rows.length === 1 ? '' : 's') + (empties ? ' · ' + empties + ' not set' : ''))), icon('right', 16)); })))] };
 }
@@ -279,7 +279,7 @@ function settingsEdit(f, d) {
       if (!same(nv, cur(r))) cells.push({ ref: r.ref, base: r.v, value: nv, label: r.label });
     }
     if (!cells.length) { drafts.delete(key); toast('No changes'); return history.back(); }
-    await queueCells(f, cells, 'Settings · ' + state.formGroup); drafts.delete(key); toast('Saved. Reaches the tracker on the next sync.', 'good'); history.back();
+    await queueCells(f, cells, 'Settings · ' + state.formGroup); drafts.delete(key); toast('Saved. Figures update at the next sync.', 'good'); history.back();
   };
   return { title: 'Plan', back: 'form', body: [
     h('h2', { class: 'formhead', id: 'formhead' }, state.formGroup),

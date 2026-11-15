@@ -27,8 +27,9 @@ import * as MV from './views-move.js';
 import * as V13 from './views-v13.js';
 import * as V14 from './views-v14.js';
 import * as V15 from './views-v15.js';
+import * as RP from './views-report.js';
 
-export const APP_VERSION = '0.15.0 (kakeibo, month notes, automatic tracker update)';
+export const APP_VERSION = '0.15.1 (figures worked out in the app, re-confirm on unlock, report a problem)';
 const $app = document.getElementById('app');
 
 // ---------- appearance (kept outside the vault so the lock screen matches)
@@ -98,8 +99,17 @@ function fileTransport(manual) {
 }
 let syncTimer = null;
 function scheduleSync(ms = 3000) { clearTimeout(syncTimer); syncTimer = setTimeout(() => doSync(false), ms); }
+// A sync waits on Microsoft and the network, so the app may lock part-way (lock timer, app switched away). Anything it
+// would still read or save on this device then stops quietly: the outbox is untouched and the next unlock syncs again.
 async function doSync(manual) {
+  try { await doSyncRun(manual); } catch (e) { if (V.isUnlocked()) throw e; if (state.syncing) state.syncing = false; }
+}
+async function doSyncRun(manual) {
   if (!V.isUnlocked() || state.syncing) return;
+  // 0.15.1 (Aravind 15 Nov): when Microsoft needs a re-confirm, unlocking the app does it by itself (no pill, no tap).
+  // At most once in 10 minutes, so a cancelled re-confirm never loops.
+  const st0 = settings(); const autoOk = manual === 'unlock' && navigator.onLine && Date.now() - (st0.reconfirmAt || 0) > 600000;
+  if (autoOk) { try { await Auth.init(); await Auth.getToken(false); } catch (e) { if (Auth.needsSignIn()) { await saveSettings({ reconfirmAt: Date.now() }); manual = true; } } }
   const t = fileTransport(manual === true); // a pull-down ('pull') never leaves the app to sign in
   if (CONFIG.demo) { if (manual) toast('Demo copy: nothing is synced. Your test entries stay on this device only.'); return; }
   try { await Auth.init(); } catch (e) { /* offline or blocked: currentAccount stays empty */ }
@@ -112,7 +122,8 @@ async function doSync(manual) {
     const prev = V.get('sync', 'state') || {};
     const prevSnap = snap(); const sch = prevSnap && prevSnap.schema;
     const due = !settings().holdUpgrade && (!sch || sch < MV.TEMPLATE.version); // a tracker update is due: read the whole file
-    const res = await syncOnce({ transport: t, ops, who: who(), device: deviceName(), lastEtag: manual || due ? null : prev.etag,
+    const fresh = !prevSnap || !prevSnap.recalcAt; // 0.15.1: figures not yet worked out by the app: read the whole file once
+    const res = await syncOnce({ transport: t, ops, who: who(), device: deviceName(), lastEtag: manual || due || fresh ? null : prev.etag,
       upgrade: settings().holdUpgrade ? null : MV.upgrader(who()), maxSchema: MV.TEMPLATE.version });
     if (res.upgraded) { await MV.afterUpgrade(res.upgraded, prevSnap); toast('Tracker updated to v' + res.upgraded.to + ' · ' + res.upgraded.copied + ' entries checked', 'good'); }
     for (const id of res.applied) await V.remove('outbox', id);
@@ -123,10 +134,11 @@ async function doSync(manual) {
       try { await C2.recordHistory(sn); } catch (e) { /* history is optional */ }
     }
     try { await syncSuggestions(); } catch (e) { if (manual) toast('Suggestion box: ' + e.message, 'bad'); }
-    await V.put('sync', 'state', { lastSync: new Date().toISOString(), lastError: null, etag: res.etag || prev.etag, upgradeError: res.upgradeError || null });
+    await V.put('sync', 'state', { lastSync: new Date().toISOString(), lastError: null, etag: res.etag || prev.etag, upgradeError: res.upgradeError || null, recalcError: res.recalcError || null, recalcMs: res.recalc ? res.recalc.ms : null });
     if (manual || res.applied.length) toast(res.applied.length ? 'Synced ' + res.applied.length + ' change' + (res.applied.length > 1 ? 's' : '') + ' to the tracker' : 'Up to date');
     if (res.conflicts.length) toast(res.conflicts.length + ' change needs your choice', 'bad');
   } catch (e) {
+    if (!V.isUnlocked()) return; // the app locked while this sync ran: nothing can be recorded now; the next unlock syncs again
     const prevErr = (V.get('sync', 'state') || {}).lastError;
     await V.put('sync', 'state', Object.assign(V.get('sync', 'state') || {}, { lastError: e.message, lastErrorAt: new Date().toISOString() }));
     if (manual || (e.locked && prevErr !== e.message)) toast(e.message, 'bad');
@@ -156,7 +168,7 @@ setInterval(() => { if (V.isUnlocked() && navigator.onLine && document.visibilit
 const TABS = [['home', 'Home', 'home'], ['spend', 'Money', 'spend'], ['add', '', 'plus'], ['wealth', 'Wealth', 'wealth'], ['more', 'More', 'more']];
 const TAB_OF = { home: 'home', spend: 'spend', addexpense: 'spend', addincome: 'spend', income: 'spend', reports: 'spend', recurring: 'spend', events: 'spend', activity: 'home', conflicts: 'home',
   wealth: 'wealth', plan: 'wealth', fire: 'wealth', alerts: 'wealth', checks: 'wealth', lent: 'more', protection: 'more', documents: 'more', settings: 'more', more: 'more', changelock: 'more', backup: 'more', restore: 'more',
-  monthly: 'more', deposits: 'more', gratuity: 'more', caticons: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more', notes: 'more', privacy: 'more' };
+  monthly: 'more', deposits: 'more', gratuity: 'more', caticons: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more', notes: 'more', privacy: 'more', report: 'more' };
 function syncPill() {
   const st = V.get('sync', 'state') || {}; const pending = V.all('outbox').length; const conflicts = V.all('conflict').length;
   let cls = 'pill', text;
@@ -180,7 +192,7 @@ function syncSheet() {
       h('span', {}, 'Waiting to sync'), h('span', {}, pending + ' change' + (pending === 1 ? '' : 's')),
       h('span', {}, 'Tracker last saved in Excel'), h('span', {}, s && s.fileModified ? F.dateTime(s.fileModified) : '–')),
     st.lastError ? h('p', { class: 'warn-text', style: { marginTop: '10px' } }, 'Last problem: ' + st.lastError) : null,
-    s && s.provisional ? h('p', { class: 'hint', style: { marginTop: '10px' } }, 'Totals are provisional until the tracker is next opened in Excel.') : null,
+    s && s.provisional ? h('p', { class: 'hint', style: { marginTop: '10px' } }, 'Totals are provisional until the next sync.') : null,
     h('div', { class: 'spacer' }),
     h('button', { class: 'btn primary wide', id: 'syncnow', disabled: state.syncing || null, onclick: e => { e.target.closest('.scrim').remove(); doSync(true); } }, icon('sync', 18), 'Sync now'));
 }
@@ -225,7 +237,7 @@ const TIPS = {
   spend: 'Switch between Spending and Income at the top. Swipe one of your entries right to edit it, or left to delete it. Every delete or edit can be undone for a few seconds.',
   addexpense: 'Tap the mic and say it, like "450 lunch UPI yesterday". The form fills in; check it and press Save. The category is also suggested for this time of day once you have logged a few.',
   reports: 'Tap a category to see its entries. The recap button shows last month in a few cards.',
-  wealth: 'Figures come from the tracker as Excel last saved it. They update after you open the tracker in Excel.',
+  wealth: 'Figures are worked out in the app from your tracker at every sync, so a change you make shows here as soon as it has synced. You never need to open Excel for them.',
   tracker: 'Each topic has its screens and everything you type for it. Saving writes only the yellow cells on the next sync.',
   monthly: 'Pick the month, then go step by step. Nothing reaches the tracker until you press Close the month on the last step, and only input cells are written.',
   recurring: 'Set up fixed amounts like rent once. On the due day, Home asks you to Add or Skip.',
@@ -264,7 +276,7 @@ function fitTables() {
 const NO_REOPEN = ['addexpense', 'addincome', 'formedit', 'kite', 'intlpaste', 'cas', 'move', 'changelock', 'backup', 'restore', 'conflicts', 'lock', 'forgot', 'setup'];
 // Phone back button: every screen change is a browser history step, so Back returns to the previous screen
 // (or closes an open sheet) instead of leaving the app.
-function go(view, opts = {}) { const prev = state.view; state.view = view; if (view === 'spend' && !opts.keepMoney) state.moneyTab = 'spending'; if (['home', 'spend', 'wealth', 'more', 'tracker'].includes(view)) { state.formBack = null; if (view !== 'tracker') state.fromTopic = null; } window.scrollTo(0, 0); render();
+function go(view, opts = {}) { const prev = state.view; state.view = view; RP.noteView(view); if (view === 'spend' && !opts.keepMoney) state.moneyTab = 'spending'; if (['home', 'spend', 'wealth', 'more', 'tracker'].includes(view)) { state.formBack = null; if (view !== 'tracker') state.fromTopic = null; } window.scrollTo(0, 0); render();
   try { if (V.isUnlocked() && prev !== view && !['lock', 'setup', 'forgot'].includes(view)) history[opts.replace ? 'replaceState' : 'pushState']({ v: view }, ''); } catch (e) { /* ignore */ }
   if (V.isUnlocked() && TAB_OF[view] && !NO_REOPEN.includes(view)) saveSettings({ lastView: view, lastTab: Object.assign({}, state.tab), lastCtx: REOPEN_KEYS.reduce((o, k) => (state[k] !== undefined && state[k] !== null ? Object.assign(o, { [k]: state[k] }) : o), {}) }).catch(() => {}); }
 // what a screen needs to show itself again after the app was locked (which block, which More topic, which person)
@@ -345,7 +357,7 @@ async function viewLock() {
   let waiting = false;
   const done = async () => { state.lastActive = Date.now(); bioTried = false; try { await X.recordOpen(); } catch (e) { /* streak is optional */ } const st0 = settings(); if (!state.resume && st0.lastView && TAB_OF[st0.lastView]) { state.resume = st0.lastView; Object.assign(state.tab, st0.lastTab || {}); Object.assign(state, st0.lastCtx || {}); }
     if (state.resume === 'form' && !state.formId) state.resume = state.topic ? 'tracker' : 'more'; // nothing to show: go to its topic page
-    state.view = state.resume && TAB_OF[state.resume] ? state.resume : 'home'; render(); scheduleSync(800); };
+    state.view = state.resume && TAB_OF[state.resume] ? state.resume : 'home'; render(); clearTimeout(syncTimer); syncTimer = setTimeout(() => doSync('unlock'), 800); };
   const tick = async () => {
     const w = await V.waitRemaining(); waiting = w > 0;
     if (waiting) { msg.textContent = 'Too many wrong tries. Try again in ' + Math.ceil(w / 1000) + ' s.'; setTimeout(tick, 1000); }
@@ -414,7 +426,8 @@ async function viewSettings() {
       row('Text size', null, sel([['system', 'Same as phone'], ['small', 'Small'], ['default', 'Standard'], ['large', 'Large']], size, async v => { await meta.set('textSize', v); applyLook(); }, 'Text size'))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Help')),
       row('Tips', 'Every one-time tip in one place.', h('button', { class: 'btn', id: 'sethelp', onclick: () => go('help') }, 'Open')),
-      row('Privacy', 'Where your data is and what the app talks to, in plain words.', h('button', { class: 'btn', id: 'setpriv', onclick: () => go('privacy') }, 'Open'))),
+      row('Privacy', 'Where your data is and what the app talks to, in plain words.', h('button', { class: 'btn', id: 'setpriv', onclick: () => go('privacy') }, 'Open')),
+      row('Report a problem', 'Tell what went wrong. App details are added; no amounts or notes.', h('button', { class: 'btn', id: 'setreport', onclick: () => go('report') }, 'Open'))),
     h('h2', { class: 'sec-h', id: 'advanced' }, 'Advanced'),
     CONFIG.demo ? null : installCard(),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Tracker version')),
@@ -572,7 +585,13 @@ async function clearSample() {
 
 // ---------- router
 let renderSeq = 0; // a slower, older render must not draw over a newer screen
+// A screen that waits (settings, lock options) may find the app locked or a newer screen drawn when it resumes. Its
+// drawing is already skipped then (renderSeq), and any read it was about to make stops quietly instead of erroring.
 async function render() {
+  const seq = renderSeq + 1;
+  try { return await renderRun(); } catch (e) { if (V.isUnlocked() && seq === renderSeq) throw e; }
+}
+async function renderRun() {
   renderSeq++;
   if (!(await V.isSetUp())) { state.view = 'setup'; return viewSetup(); }
   if (!V.isUnlocked()) { if (state.view === 'forgot') return viewForgot(); return viewLock(); }
@@ -623,6 +642,7 @@ async function render() {
     case 'move': return shell(MV.viewMove());
     case 'notes': return shell(V15.viewNotes());
     case 'privacy': return shell(V15.viewPrivacy());
+    case 'report': return shell(RP.viewReport(APP_VERSION));
     default: state.view = 'home'; return shell(M.viewHome());
   }
 }

@@ -12,6 +12,27 @@ export const serialToISO = s => new Date(EPOCH + Math.round(Number(s) * 86400000
 export const isoToSerial = iso => Math.round((Date.parse(iso + 'T00:00:00Z') - EPOCH) / 86400000);
 
 export class FormulaCellError extends Error {}
+// Moves the relative references of a formula by (dr, dc), as Excel does when it fills a shared formula. Text in quotes,
+// sheet names in quotes and table references in brackets are left alone; $-anchored parts stay.
+export function shiftRefs(f, dr, dc) {
+  if (!dr && !dc) return f;
+  let out = '', i = 0;
+  while (i < f.length) {
+    const ch = f[i];
+    if (ch === '"') { let j = i + 1; while (j < f.length && !(f[j] === '"' && f[j + 1] !== '"')) j += f[j] === '"' ? 2 : 1; out += f.slice(i, j + 1); i = j + 1; continue; }
+    if (ch === "'") { let j = i + 1; while (j < f.length && !(f[j] === "'" && f[j + 1] !== "'")) j += f[j] === "'" ? 2 : 1; out += f.slice(i, j + 1); i = j + 1; continue; }
+    if (ch === '[') { let d = 0, j = i; for (; j < f.length; j++) { if (f[j] === "'" ) { j++; continue; } if (f[j] === '[') d++; else if (f[j] === ']' && --d === 0) break; } out += f.slice(i, j + 1); i = j + 1; continue; }
+    const m = /^(\$?)([A-Z]{1,3})(\$?)(\d+)(?![\d(A-Za-z_])/.exec(f.slice(i));
+    const prev = i ? f[i - 1] : '';
+    if (m && !/[A-Za-z0-9_.]/.test(prev)) {
+      const c = m[1] ? m[2] : n2col(col2n(m[2]) + dc); const r = m[3] ? m[4] : String(Number(m[4]) + dr);
+      out += m[1] + c + m[3] + r; i += m[0].length; continue;
+    }
+    const w = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(f.slice(i)); if (w) { out += w[0]; i += w[0].length; continue; }
+    out += ch; i++;
+  }
+  return out;
+}
 
 export class Workbook {
   static async open(buf) { const wb = new Workbook(); await wb._load(buf); return wb; }
@@ -137,6 +158,56 @@ export class Workbook {
   dropdownAt(sheet, ref) { const [c, r] = splitRef(ref); const n = col2n(c); const d = this.dropdowns(sheet).find(x => x.ranges.some(([c1, r1, c2, r2]) => n >= c1 && n <= c2 && r >= r1 && r <= r2)); return d ? d.options : null; }
   isFormula(sheet, ref) { const { doc } = this._sheet(sheet); const c = this._cell(doc, ref, false); return !!(c && c.getElementsByTagNameNS(NS, 'f').length); }
   style(sheet, ref) { const { doc } = this._sheet(sheet); const c = this._cell(doc, ref, false); return c ? c.getAttribute('s') : null; }
+  // Every cell of a sheet for the in-app recalculation: [row, col, value] with formulas as '=...' text.
+  // Shared formulas (Excel writes them for filled ranges) are expanded by shifting the master's references.
+  cellsForCalc(sheet) {
+    const { doc } = this._sheet(sheet); const out = []; const masters = new Map(); const pend = [];
+    const sd = doc.getElementsByTagNameNS(NS, 'sheetData')[0];
+    for (const row of sd.children) for (const c of row.children) {
+      const ref = c.getAttribute('r'); if (!ref) continue; const [cc, rr] = splitRef(ref); const cn = col2n(cc);
+      const f = c.getElementsByTagNameNS(NS, 'f')[0];
+      if (f) {
+        const ft = f.getAttribute('t'); const txt = f.textContent;
+        if (ft === 'shared') { const si = f.getAttribute('si'); if (txt) { masters.set(si, { txt, r: rr, c: cn }); out.push([rr, cn, '=' + txt]); } else pend.push([rr, cn, si, out.length, ref]), out.push(null); continue; }
+        if (ft === 'dataTable') { out.push([rr, cn, this.get(sheet, ref), 'keep']); continue; }
+        if (txt) { out.push([rr, cn, '=' + txt]); continue; }
+      }
+      const v = this.get(sheet, ref); if (v === null || v === '') continue;
+      out.push([rr, cn, v]);
+    }
+    for (const [rr, cn, si, i, ref] of pend) { const m = masters.get(si); out[i] = m ? [rr, cn, '=' + shiftRefs(m.txt, rr - m.r, cn - m.c)] : [rr, cn, this.get(sheet, ref), 'keep']; }
+    return out.filter(Boolean);
+  }
+  hiddenRows(sheet) { const { doc } = this._sheet(sheet); const s = new Set(); for (const row of doc.getElementsByTagNameNS(NS, 'sheetData')[0].children) if (/^(1|true)$/.test(row.getAttribute('hidden') || '')) s.add(Number(row.getAttribute('r'))); return s; }
+  // Writes a recalculated result into a formula cell (the formula itself is kept). Returns true if the saved value changed.
+  setCached(sheet, ref, value) {
+    const { p, doc } = this._sheet(sheet); const c = this._cell(doc, ref, false); if (!c) return false;
+    const f = c.getElementsByTagNameNS(NS, 'f')[0]; if (!f) return false;
+    const old = this.get(sheet, ref); const isErr = typeof value === 'string' && /^#(N\/A|VALUE!|REF!|DIV\/0!|NUM!|NAME\?|NULL!|SPILL!|CALC!)$/.test(value);
+    if (old === value || (typeof old === 'number' && typeof value === 'number' && Math.abs(old - value) <= 1e-9 * Math.max(1, Math.abs(old)))) return false;
+    if ((old === null || old === '') && (value === null || value === '')) return false;
+    let v = c.getElementsByTagNameNS(NS, 'v')[0]; for (const is of [...c.getElementsByTagNameNS(NS, 'is')]) c.removeChild(is);
+    if (value === null || value === undefined) { if (v) c.removeChild(v); c.setAttribute('t', 'str'); v = doc.createElementNS(NS, 'v'); c.appendChild(v); v.textContent = ''; }
+    else {
+      if (!v) { v = doc.createElementNS(NS, 'v'); c.appendChild(v); }
+      if (typeof value === 'number') { c.removeAttribute('t'); v.textContent = String(value); }
+      else if (typeof value === 'boolean') { c.setAttribute('t', 'b'); v.textContent = value ? '1' : '0'; }
+      else { c.setAttribute('t', isErr ? 'e' : 'str'); v.textContent = String(value); }
+    }
+    const g = this._grids && this._grids.get(sheet); if (g) { const [cc, rr] = splitRef(ref); let m = g.get(rr); if (value === null || value === '') { if (m) m.delete(col2n(cc)); } else { if (!m) { m = new Map(); g.set(rr, m); } m.set(col2n(cc), value); } }
+    this.dirty.add(p); return true;
+  }
+  sheetNames() { return Object.keys(this.sheetPath); }
+  // A table's filter (a slicer writes one): [{ col: index in the table, values: [...shown values], blank }]
+  tableFilter(name) {
+    const t = this.table(name); const af = t.el.getElementsByTagNameNS(NS, 'autoFilter')[0]; if (!af) return [];
+    const out = [];
+    for (const fc of af.getElementsByTagNameNS(NS, 'filterColumn')) {
+      const fl = fc.getElementsByTagNameNS(NS, 'filters')[0]; if (!fl) { out.push({ col: Number(fc.getAttribute('colId')), unsupported: true }); continue; }
+      out.push({ col: Number(fc.getAttribute('colId')), values: [...fl.getElementsByTagNameNS(NS, 'filter')].map(x => x.getAttribute('val')), blank: fl.getAttribute('blank') === '1' || fl.getAttribute('blank') === 'true' });
+    }
+    return out;
+  }
   set(sheet, ref, value, style) {
     const { p, doc } = this._sheet(sheet);
     const c = this._cell(doc, ref, true);

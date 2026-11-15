@@ -192,7 +192,7 @@ export function homeTiles(s, p) {
   if (p === 'Family') {
     const f = s.fire || {}; const coast = s.coast && typeof s.coast.year === 'number' ? s.coast.year : null;
     t3 = tile('tile-fire', 'FIRE', 'Progress', typeof f.progress === 'number' ? F.pct(f.progress, 0) : '–', typeof f.progress === 'number' ? f.progress : null,
-      h('span', { class: 'hint' }, coast ? 'Coast FIRE ' + coast : s.coast && s.coast.year ? String(s.coast.year) : 'Coast FIRE after Excel recalculates'));
+      h('span', { class: 'hint' }, coast ? 'Coast FIRE ' + coast : s.coast && s.coast.year ? String(s.coast.year) : 'Coast FIRE after the next sync'));
     const prev = closeFor(s, addMonths(lm, -1), 'Family');
     let nw = c ? c.nw : null, before = prev ? prev.nw : null;
     if (nw === null) { const m = (s.monthly || []).find(r => (r.month || '').startsWith(lm)); const m0 = (s.monthly || []).find(r => (r.month || '').startsWith(addMonths(lm, -1))); nw = m && m.nwF; before = m0 && m0.nwF; }
@@ -206,7 +206,7 @@ export function homeTiles(s, p) {
     t4 = mixTile(s, p);
   }
   return h('div', { class: 'grid tiles2', id: 'hometiles' }, t1, t2, t3, t4,
-    s.provisional ? h('p', { class: 'hint span2' }, 'FIRE and net worth update after the tracker is next opened in Excel.') : null);
+    s.provisional ? h('p', { class: 'hint span2' }, 'FIRE and net worth update at the next sync.') : null);
 }
 // last month's spend against the average of the 3 months before it, and the category that moved most
 function spendWatch(lm, p) {

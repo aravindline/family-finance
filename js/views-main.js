@@ -20,7 +20,7 @@ const isoToday = () => { const d = new Date(); return new Date(d.getTime() - d.g
 
 export function personSeg(onChange) { return seg(PEOPLE, state.person, p => { state.person = p; (onChange || ctx.render)(); }, 'Person'); }
 export function asOfLine(s) {
-  return h('p', { class: 'asof' }, s.sample ? tag('SAMPLE DATA', 'sample') : null, ' As of last sync' + (s.asOf ? ' · tracker saved ' + F.date(s.asOf) : ''),
+  return h('p', { class: 'asof' }, s.sample ? tag('SAMPLE DATA', 'sample') : null, ' As of last sync' + (s.recalcAt ? ' · figures worked out ' + F.dateTime(s.recalcAt) : s.asOf ? ' · tracker saved ' + F.date(s.asOf) : ''),
     s.provisional ? [' ', tag('PROVISIONAL', 'prov')] : null);
 }
 export function trendPoints(s, person) {

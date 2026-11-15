@@ -80,7 +80,7 @@ export function viewFire() {
       ['Projected corpus', money(x.projected)], ['Needed', money(x.needed)],
       [x.onTrack ? 'Extra' : 'Short', money(Math.abs(x.gap)), x.onTrack ? 'gain' : 'loss']]),
       h('p', { class: 'hint', style: { marginTop: '6px' } }, "All in today's money.")),
-    card('Path to FIRE', null, pathChart(x) || empty('The yearly path appears after the tracker is next opened in Excel.')),
+    card('Path to FIRE', null, pathChart(x) || empty('The yearly path appears after the next sync.')),
     card('Today', null, kv([['FIRE corpus', money(x.corpusToday)], ['Progress', x.progress === null ? '–' : F.pct(x.progress, 0)], ['Coast FIRE', x.coastYear ? String(x.coastYear) + (isNum(x.coastAge) ? ' · age ' + x.coastAge : '') : '–']]),
       x.coastYear ? h('p', { class: 'hint', style: { marginTop: '6px' } }, 'Coast FIRE: from ' + x.coastYear + ' you could stop adding money and still reach your number' + (isNum(x.retireAge) ? ' by ' + x.retireAge : '') + '.') : null),
     card('Monthly investing', null, kv([['Needed', needM], ['Your target', money(x.target)], isNum(x.actual) && x.actual > 0 ? ['Actual (last 12 months)', money(x.actual)] : null])),
@@ -90,6 +90,6 @@ export function viewFire() {
         ['Inflation', pctv(x.inflation)], ['Returns before / after', pctv(x.retBefore) + ' / ' + pctv(x.retAfter)],
         x.goldCounted === null ? null : ['Physical gold', x.goldCounted ? 'Counted' : 'Not counted' + (isNum(x.goldOut) && x.goldOut > 0 ? ' (' + F.inrShort(x.goldOut) + ')' : '')]])),
       h('div', { class: 'btns', style: { marginTop: '8px' } }, h('button', { class: 'btn', id: 'fireedit', onclick: () => { state.formId = 'settings'; state.formBack = 'fire'; ctx.go('form'); } }, 'Change in FIRE assumptions'))),
-    s.provisional ? h('p', { class: 'hint', style: { margin: '8px 4px' } }, 'These figures update after the tracker is next opened in Excel.') : null];
+    s.provisional ? h('p', { class: 'hint', style: { margin: '8px 4px' } }, 'These figures update at the next sync.') : null];
   return { title: 'FIRE', back, body };
 }

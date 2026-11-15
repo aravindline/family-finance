@@ -150,6 +150,7 @@ const PLACES = [
   ['Tracker version', 'move', 'upload', 'update upgrade new version tracker undo'],
   ['Month notes', 'notes', 'doc', 'month end note better review kakeibo reflection'],
   ['Privacy', 'privacy', 'lock', 'privacy data where safe google microsoft'],
+  ['Report a problem', 'report', 'info', 'report problem bug error wrong fault feedback help'],
   ['Recurring', 'recurring', 'calendar', 'rent fixed monthly approval'], ['Family activity', 'activity', 'spend', 'feed madhu aravind'],
   ['Settings', 'settings', 'gear', 'sync onedrive'], ['Help', 'help', 'info', 'tips'], ['How holdings are grouped', 'grouping', 'pie', 'investment types type rules'], ['Settings › Fingerprint', 'settings', 'finger', 'biometric unlock'],
   ['Settings › Lock timing', 'settings', 'lock', 'grace auto lock pin'], ['Settings › Hide amounts', 'settings', 'eye', 'privacy mode'],
