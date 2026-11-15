@@ -1,4 +1,5 @@
 // Home (dashboard), Spend and Add expense.
+import * as K from './kakeibo.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, toast, haptic, sheet, catIcon, catColor, seg, tag, bar, card, moreBtn, empty, ring } from './ui.js';
@@ -289,14 +290,19 @@ export function viewAddExpense() {
   const ed = state.editing; const st = ctx.settings();
   const sug = ed ? '' : suggestCategory(cats);
   const f = { by: ed ? ed.by || ctx.who() : ctx.who(), date: ed ? ed.date : isoToday(), amount: ed ? String(ed.amount) : '', category: ed ? ed.category : sug, sub: ed ? ed.sub : (sug ? (st.lastSub || {})[sug] || '' : ''), mode: ed ? ed.mode : (st.lastMode || ''), notes: ed ? ed.notes : '', event: ed ? ed.event || '' : '' }; let catTouched = !!ed;
+  f.tag = ed ? ed.tag || K.tagFor(f.category) : K.tagFor(f.category);
   if (state.voiceExp) { Object.assign(f, state.voiceExp); state.voiceExp = null; catTouched = true; } // filled by voice, then redrawn
   const amt = h('input', { id: 'amount', inputmode: 'decimal', placeholder: '0', 'aria-label': 'Amount in rupees', value: f.amount, autocomplete: 'off' });
   const catBox = h('div', { class: 'chips catgrid', role: 'group', 'aria-label': 'Category' }), subBox = h('div', { class: 'chips', role: 'group', 'aria-label': 'Sub-category' }), modeBox = h('div', { class: 'chips', role: 'group', 'aria-label': 'Payment mode' });
   const subWrap = h('div');
   const drawSubs = () => { const list = subs[f.category] || []; subWrap.hidden = !list.length; subBox.replaceChildren(...list.map(x => h('button', { class: 'chip' + (f.sub === x ? ' on' : ''), 'aria-pressed': String(f.sub === x), onclick: () => { f.sub = f.sub === x ? '' : x; drawSubs(); } }, x))); };
-  const drawCats = () => catBox.replaceChildren(...cats.map(c => h('button', { class: 'chip cat' + (f.category === c ? ' on' : ''), 'aria-pressed': String(f.category === c), 'aria-label': c, onclick: () => { f.category = c; catTouched = true; f.sub = (st.lastSub || {})[c] || ''; drawCats(); drawSubs(); } }, catIcon(c, 20), c)));
+  const drawCats = () => catBox.replaceChildren(...cats.map(c => h('button', { class: 'chip cat' + (f.category === c ? ' on' : ''), 'aria-pressed': String(f.category === c), 'aria-label': c, onclick: () => { f.category = c; catTouched = true; f.sub = (st.lastSub || {})[c] || ''; f.tag = K.tagFor(c); drawCats(); drawSubs(); drawTag(); } }, catIcon(c, 20), c)));
+  // kakeibo: one small chip beside the Category label; it follows the category and a tap changes it for this expense
+  const tagBtn = h('button', { class: 'ktag', id: 'ktag', type: 'button' });
+  const drawTag = () => { tagBtn.hidden = !f.tag; tagBtn.textContent = f.tag || ''; tagBtn.setAttribute('aria-label', 'Kakeibo tag ' + (f.tag || '') + '. Tap to change'); };
+  tagBtn.onclick = () => { f.tag = K.nextTag(f.tag); drawTag(); };
   const drawModes = () => modeBox.replaceChildren(...modes.map(m => h('button', { class: 'chip' + (f.mode === m ? ' on' : ''), 'aria-pressed': String(f.mode === m), onclick: () => { f.mode = f.mode === m ? '' : m; drawModes(); } }, m)));
-  drawCats(); drawSubs(); drawModes();
+  drawCats(); drawSubs(); drawModes(); drawTag();
   subWrap.append(h('div', { class: 'label-sm' }, 'Sub-category (optional)'), subBox);
   const dateIn = h('input', { class: 'field', type: 'date', id: 'edate', value: f.date, 'aria-label': 'Date', max: isoToday(), style: { width: 'auto' }, onchange: () => { f.date = dateIn.value; drawDates(); } });
   const dateBox = h('div', { class: 'chips', role: 'group', 'aria-label': 'Date' });
@@ -307,14 +313,14 @@ export function viewAddExpense() {
   drawDates();
   const notes = h('input', { class: 'field', id: 'enotes', placeholder: 'Note (optional)', 'aria-label': 'Note', value: f.notes, maxlength: 120 });
   const learnHint = h('span', { class: 'faint', id: 'learnhint' });
-  notes.addEventListener('input', () => { if (catTouched) return; const g = C2.guessCategory(notes.value, cats); if (g && g !== f.category) { f.category = g; f.sub = (st.lastSub || {})[g] || ''; drawCats(); drawSubs(); learnHint.textContent = ' · ' + g + ', learned from your notes'; } });
+  notes.addEventListener('input', () => { if (catTouched) return; const g = C2.guessCategory(notes.value, cats); if (g && g !== f.category) { f.category = g; f.sub = (st.lastSub || {})[g] || ''; f.tag = K.tagFor(g); drawCats(); drawSubs(); drawTag(); learnHint.textContent = ' · ' + g + ', learned from your notes'; } });
   const save = async again => {
     const amount = parseAmount(amt.value);
     if (!(amount > 0)) { toast('Type an amount, like 250 or 1,250.50', 'bad'); amt.focus(); return; }
     if (!f.category) { toast('Pick a category', 'bad'); return; }
     if (!f.date) { toast('Pick a date', 'bad'); return; }
     if (amount > 100000 && !(ed && Number(ed.amount) === amount) && !(await confirmAmount(amount, F.inr))) { amt.focus(); return; }
-    const vals = { by: f.by, date: f.date, amount, category: f.category, sub: f.sub, mode: f.mode, notes: notes.value.trim(), event: f.event || '' };
+    const vals = { by: f.by, date: f.date, amount, category: f.category, sub: f.sub, mode: f.mode, notes: notes.value.trim(), event: f.event || '', tag: f.tag || K.tagFor(f.category) };
     if (vals.event && !(ctx.snap() || {}).v21) { toast('Events need tracker v21 in OneDrive first', 'bad'); return; }
     ctx.saveSettings({ lastMode: f.mode, lastSub: Object.assign({}, st.lastSub, { [f.category]: f.sub }) }).catch(() => {}); // the entry itself is written first, below
     const V = ctx.V;
@@ -335,13 +341,13 @@ export function viewAddExpense() {
       const v = parseVoice(alts, 'expense', { cats, subs, modes, events: C2.activeEvents().map(e => e.name) });
       const fill = { ...f, amount: amt.value, notes: notes.value };
       if (v.amount != null) fill.amount = String(v.amount);
-      if (v.category) { fill.category = v.category; fill.sub = v.sub || ''; }
-      else if (v.notes && !fill.category) { const g = C2.guessCategory(v.notes, cats); if (g) { fill.category = g; fill.sub = ''; v.category = g; } }
+      if (v.category) { fill.category = v.category; fill.sub = v.sub || ''; fill.tag = K.tagFor(v.category); }
+      else if (v.notes && !fill.category) { const g = C2.guessCategory(v.notes, cats); if (g) { fill.category = g; fill.sub = ''; fill.tag = K.tagFor(g); v.category = g; } }
       for (const k of ['date', 'mode', 'event', 'by']) if (v[k]) fill[k] = v[k];
       if (v.notes && !fill.notes) fill.notes = v.notes;
       state.voiceExp = fill; ctx.render(); toast(voiceSummary(v), v.amount != null || v.category ? 'info' : 'bad');
     })),
-    h('div', { class: 'label-sm' }, 'Category', sug ? h('span', { class: 'faint' }, ' · suggested for this time of day') : null, learnHint), cats.length ? catBox : h('p', { class: 'hint' }, 'Sync once to get your categories.'),
+    h('div', { class: 'label-sm row-between' }, h('span', {}, 'Category', sug ? h('span', { class: 'faint' }, ' · suggested for this time of day') : null, learnHint), tagBtn), cats.length ? catBox : h('p', { class: 'hint' }, 'Sync once to get your categories.'),
     subWrap,
     h('div', { class: 'label-sm' }, 'Date'), dateBox,
     modes.length ? [h('div', { class: 'label-sm' }, 'Paid by (optional)'), modeBox] : null,

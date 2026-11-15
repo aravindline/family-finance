@@ -5,16 +5,17 @@ import { Workbook, serialToISO, isoToSerial } from './xlsx.js';
 import { uuid } from './crypto.js';
 import { extractSnapshot } from './extract.js';
 import { isTidy, readTidy, toTidy, TIDY } from './kite.js';
+import { schemaVersion } from './migrate.js';
 
 const DAILY = 'tblDaily', LOG = 'tblSyncLog', META = 'tblAppMeta';
 export class PreconditionFailed extends Error {}
 
 const nowStamp = () => { const d = new Date(); const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); };
-const FIELDS = { date: 'Date', amount: 'Amount', category: 'Category', sub: 'Sub-category', mode: 'Payment mode', notes: 'Notes', by: 'Logged by', status: 'Status', event: 'Event', enteredBy: 'Entered by' };
+const FIELDS = { date: 'Date', amount: 'Amount', category: 'Category', sub: 'Sub-category', mode: 'Payment mode', notes: 'Notes', by: 'Logged by', status: 'Status', event: 'Event', enteredBy: 'Entered by', tag: 'Kakeibo' };
 
 export function rowToEntry(r) {
   return { id: r['Entry ID'], date: typeof r.Date === 'number' ? serialToISO(r.Date) : r.Date, amount: Number(r.Amount) || 0, category: r.Category || '', sub: r['Sub-category'] || '',
-    mode: r['Payment mode'] || '', notes: r.Notes || '', event: r.Event || '', by: r['Logged by'] || '', enteredBy: r['Entered by'] || '', status: r.Status || 'Active', createdAt: r['Created at'] || '', updatedAt: r['Updated at'] || '', version: Number(r.Version) || 1, row: r._row };
+    mode: r['Payment mode'] || '', notes: r.Notes || '', event: r.Event || '', by: r['Logged by'] || '', enteredBy: r['Entered by'] || '', tag: r.Kakeibo || '', status: r.Status || 'Active', createdAt: r['Created at'] || '', updatedAt: r['Updated at'] || '', version: Number(r.Version) || 1, row: r._row };
 }
 function entryCell(field, v) { return field === 'date' ? isoToSerial(v) : field === 'amount' ? Number(v) : v; }
 
@@ -27,7 +28,7 @@ export function applyOutbox(wb, ops, who, device) {
     if (op.kind === 'addExpense') {
       if (byId.has(op.entry.id)) { applied.push(op.opId); continue; } // already there (earlier attempt)
       const e = op.entry;
-      const row = wb.appendTableRow(DAILY, { Date: isoToSerial(e.date), Amount: Number(e.amount), Category: e.category, 'Sub-category': e.sub || null, 'Payment mode': e.mode || null, Notes: e.notes || null, ...(wb.table(DAILY).cols.includes('Event') ? { Event: e.event || null } : {}), ...(wb.table(DAILY).cols.includes('Entered by') ? { 'Entered by': e.enteredBy || e.by } : {}), 'Logged by': e.by, Status: 'Active', 'Entry ID': e.id, 'Created at': e.createdAt, 'Updated at': stamp, Version: 1 });
+      const row = wb.appendTableRow(DAILY, { Date: isoToSerial(e.date), Amount: Number(e.amount), Category: e.category, 'Sub-category': e.sub || null, 'Payment mode': e.mode || null, Notes: e.notes || null, ...(wb.table(DAILY).cols.includes('Event') ? { Event: e.event || null } : {}), ...(wb.table(DAILY).cols.includes('Entered by') ? { 'Entered by': e.enteredBy || e.by } : {}), ...(e.tag && wb.table(DAILY).cols.includes('Kakeibo') ? { Kakeibo: e.tag } : {}), 'Logged by': e.by, Status: 'Active', 'Entry ID': e.id, 'Created at': e.createdAt, 'Updated at': stamp, Version: 1 });
       log.push([stamp, who, device, 'Daily Expenses', 'Row ' + row + ' (' + e.id.slice(0, 8) + ')', 'New entry', '', e.date + ' · ₹' + e.amount + ' · ' + e.category + (e.sub ? ' › ' + e.sub : ''), batch]);
       byId.set(e.id, { _row: row }); applied.push(op.opId);
     } else if (op.kind === 'editExpense' || op.kind === 'deleteExpense') {
@@ -43,6 +44,7 @@ export function applyOutbox(wb, ops, who, device) {
       const changes = op.kind === 'deleteExpense' ? { status: 'Deleted' } : op.changes;
       if ('event' in changes && !wb.table(DAILY).cols.includes('Event')) { conflicts.push({ op, reason: 'needs-v21', remote }); continue; }
       for (const [f, v] of Object.entries(changes)) {
+        if (f === 'tag' && !wb.table(DAILY).cols.includes('Kakeibo')) continue; // tracker before v31: the tag waits for the update
         const old = remote[f];
         wb.setTableCell(DAILY, r._row, FIELDS[f], entryCell(f, v));
         log.push([stamp, who, device, 'Daily Expenses', 'Row ' + r._row + ' (' + op.id.slice(0, 8) + ')', FIELDS[f], old === undefined || old === null ? '' : String(old), String(v), batch]);
@@ -138,18 +140,29 @@ export function lastAppWrite(wb) { try { const m = wb.tableRows(META).find(x => 
 
 // One full sync round. transport: { download() -> {bytes, etag}, upload(bytes, etag) -> {etag} | throws PreconditionFailed,
 // meta() -> {eTag} (optional) }. With nothing to send and an unchanged file, nothing is downloaded (saves mobile data).
-export async function syncOnce({ transport, ops, who, device, maxTries = 3, lastEtag = null }) {
+// upgrade (optional): async bytes -> { bytes, from, to, copied, ... } carries the file into the newer tracker version the
+// app ships with, before any change is written (app 0.15.0: automatic tracker update). maxSchema: the newest tracker
+// version this app knows; a newer tracker is never written to (an older app on another phone must be refreshed first).
+export async function syncOnce({ transport, ops, who, device, maxTries = 3, lastEtag = null, upgrade = null, maxSchema = null }) {
   if (!ops.length && lastEtag && transport.meta) {
     const m = await transport.meta();
     if (m && m.eTag === lastEtag) return { applied: [], conflicts: [], logCount: 0, unchanged: true, etag: lastEtag, attempts: 0 };
   }
   for (let attempt = 1; attempt <= maxTries; attempt++) {
     const { bytes, etag } = await transport.download();
-    const wb = await Workbook.open(bytes);
+    let wb = await Workbook.open(bytes);
     if (!wb.hasSheet('Daily Expenses') || !wb.tables[DAILY]) throw new Error('This file is not tracker v20 or later (Daily Expenses sheet missing).');
+    const sv = schemaVersion(wb);
+    if (maxSchema && sv && sv > maxSchema) { const e = new Error('Your tracker is v' + sv + ', newer than this app (v' + maxSchema + '). Close the app fully and open it again to get the latest app. Nothing was changed.'); e.newer = true; throw e; }
+    let upgraded = null, upgradeError = null;
+    if (upgrade && maxSchema && sv && sv < maxSchema) {
+      try { const r = await upgrade(bytes); wb = await Workbook.open(r.bytes); upgraded = Object.assign({}, r, { oldBytes: bytes, bytes: undefined }); }
+      catch (e) { upgradeError = e.message || String(e); wb = await Workbook.open(bytes); } // the update waits; your entries still sync
+    }
     const res = ops.length ? applyOutbox(wb, ops, who, device) : { applied: [], conflicts: [], logCount: 0 };
+    res.upgraded = upgraded; res.upgradeError = upgradeError;
     let newEtag = etag;
-    if (res.logCount) { // nothing changed (or every change was already in the file): nothing is uploaded
+    if (res.logCount || upgraded) { // nothing changed (or every change was already in the file): nothing is uploaded
       const out = await wb.save();
       try { newEtag = (await transport.upload(out, etag)).etag; }
       catch (e) { if (e instanceof PreconditionFailed && attempt < maxTries) continue; throw e; } // someone saved meanwhile: start again on the new file

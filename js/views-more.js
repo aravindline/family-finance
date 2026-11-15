@@ -136,7 +136,7 @@ function topTenCard(rows) {
 function sectorCard(s, p) {
   const list = (s.sectors || []).filter(x => x.value);
   return card('Sectors · direct stocks', p === 'Family' ? null : tag('Family', 'plain'), list.length ? h('table', { class: 'cmp', id: 'sectors' }, h('thead', {}, h('tr', {}, h('th', {}, 'Sector'), h('th', { class: 'num' }, 'Value'), h('th', { class: 'num' }, 'Share'))),
-    h('tbody', {}, list.sort((a, b) => b.value - a.value).map(x => h('tr', {}, h('td', {}, x.name, statusKind(x.status) !== 'ok' && x.status ? [' ', tag(x.status, statusKind(x.status))] : null), h('td', { class: 'num' }, F.inrShort(x.value)), h('td', { class: 'num' }, F.pct(x.pct, 1)))))) : empty('Appears once Kite holdings are pasted and sectors are set.'));
+    h('tbody', {}, list.sort((a, b) => b.value - a.value).map(x => h('tr', {}, h('td', {}, h('span', { class: 'nm' }, x.name), statusKind(x.status) !== 'ok' && x.status ? [' ', tag(x.status, statusKind(x.status))] : null), h('td', { class: 'num' }, F.inrShort(x.value)), h('td', { class: 'num' }, F.pct(x.pct, 1)))))) : empty('Appears once Kite holdings are pasted and sectors are set.'));
 }
 function fundsCard(rows) {
   const list = [...rows].sort((a, b) => (b.current || 0) - (a.current || 0));

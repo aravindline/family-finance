@@ -2,6 +2,7 @@
 // tracker version it ships with, checks every one, and saves the result over your own tracker file in OneDrive.
 // Pure functions on Workbook objects, so they can be tested without OneDrive.
 import { moveData, schemaVersion, markUpgraded } from './migrate.js';
+import { tagFor } from './kakeibo.js';
 
 // formula cells keep the result Excel last worked out in YOUR file when the formula is exactly the same in both
 // versions, so the app shows real figures straight away; Excel recalculates everything when the file is next opened.
@@ -51,6 +52,14 @@ export function carryNotes(oldWb, newWb) {
   return n;
 }
 
+// tracker v31: every earlier expense gets its kakeibo tag from its category (only where the tag is still blank)
+export function fillTags(wb) {
+  if (!wb.tables.tblDaily || !wb.table('tblDaily').cols.includes('Kakeibo')) return 0;
+  let n = 0;
+  for (const r of wb.tableRows('tblDaily')) { if (!r.Category || (r.Kakeibo !== null && r.Kakeibo !== undefined && r.Kakeibo !== '')) continue; wb.setTableCell('tblDaily', r._row, 'Kakeibo', tagFor(r.Category)); n++; }
+  return n;
+}
+
 // every input cell of your file, read back from the updated file (after saving and opening it again): same value, or listed
 export function checkInputs(oldWb, upWb, rep) {
   const moved = new Map(rep.copied.map(c => [c.sheet + '|' + c.ref, c.value]));
@@ -73,11 +82,12 @@ export async function upgradeBytes(Workbook, oldBytes, templateBytes, { by, at }
   if (rep.missing.length) { const e = new Error(rep.missing.length + ' entr' + (rep.missing.length === 1 ? 'y has' : 'ies have') + ' no place in v' + vn + '. Nothing was changed.'); e.report = rep; throw e; }
   if (rep.wrong.length) throw new Error(rep.wrong.length + ' values did not read back the same. Nothing was changed.');
   const notes = carryNotes(oldWb, newWb);
+  const tagged = fillTags(newWb);
   const cache = carryCache(oldWb, newWb);
   markUpgraded(newWb, { from: vo, to: vn, by, at });
   const out = await newWb.save();
   const upWb = await Workbook.open(out); const chk = checkInputs(oldWb, upWb, rep);
   if (chk.bad.length) { const e = new Error(chk.bad.length + ' entries did not read back the same from the updated file. Nothing was changed.'); e.check = chk; throw e; }
   if (schemaVersion(upWb) !== vn) throw new Error('The updated file does not say v' + vn + '. Nothing was changed.');
-  return { bytes: out, from: vo, to: vn, copied: rep.copied.length, perSheet: rep.perSheet, cache, notes, checked: chk.checked };
+  return { bytes: out, from: vo, to: vn, copied: rep.copied.length, perSheet: rep.perSheet, cache, notes, tagged, checked: chk.checked };
 }

@@ -7,6 +7,8 @@ import { h, s as svgEl, tag, card, empty, icon } from './ui.js';
 
 const isNum = v => typeof v === 'number' && isFinite(v);
 // what the screens need, in today's money; null when the tracker has no FIRE Plan figures yet
+// Settings › Count physical gold in FIRE (tracker v31): blank or No = left out (Aravind, 13 Nov 2026)
+function goldCounted(s) { const c = s && s.settingCells && s.settingCells['Count physical gold in FIRE (Yes / No)']; return c ? String(c.v || '').trim() === 'Yes' : null; }
 export function fireFigures(s) {
   const fp = s && s.firePlan; if (!fp || !isNum(fp.needed) || !isNum(fp.projected) || !(fp.needed > 0)) return null; // 0 = not yet worked out by Excel
   const f = s.fire || {}; const coast = s.coast && isNum(s.coast.year) ? s.coast : null;
@@ -15,7 +17,7 @@ export function fireFigures(s) {
   return { needed: fp.needed, projected: fp.projected, gap: fp.projected - fp.needed, onTrack: fp.projected >= fp.needed, retireAge, fireDate, fireYear,
     yearsToGo: isNum(f.yearsToGo) ? f.yearsToGo : null, corpusToday: isNum(f.corpusToday) ? f.corpusToday : fp.corpusToday, progress: isNum(f.progress) ? f.progress : null,
     coastYear: coast ? coast.year : null, coastAge: coast && isNum(coast.age) ? coast.age : null, monthlyNeeded: fp.monthlyNeeded, target: fp.target, actual: fp.actual,
-    lasts: fp.lasts, living: fp.living, trips: fp.trips, inflation: fp.inflation, retBefore: fp.retBefore, retAfter: fp.retAfter, start: fp.start, model: fp.model || [] };
+    lasts: fp.lasts, goldOut: fp.goldOut, goldCounted: goldCounted(s), living: fp.living, trips: fp.trips, inflation: fp.inflation, retBefore: fp.retBefore, retAfter: fp.retAfter, start: fp.start, model: fp.model || [] };
 }
 const statusTag = x => tag(x.onTrack ? 'On track' : 'Behind', x.onTrack ? 'ok' : 'warn');
 const retireLine = x => [x.fireDate ? 'Retire ' + F.monthLabel(x.fireDate, true) : null, x.yearsToGo !== null ? Math.round(x.yearsToGo) + ' years to go' : null, "today's money"].filter(Boolean).join(' · ');
@@ -85,7 +87,8 @@ export function viewFire() {
     card('After FIRE', null, kv([['Money lasts until age', lasts]])),
     h('details', { class: 'card', id: 'fireassum' }, h('summary', { class: 'ttl strong' }, 'Assumptions'),
       h('div', { style: { marginTop: '8px' } }, kv([['Retirement age', isNum(x.retireAge) ? String(x.retireAge) : '–'], ['Spend after FIRE', isNum(x.living) ? F.inr((x.living || 0) + (x.trips || 0)) + ' / month' : '–'],
-        ['Inflation', pctv(x.inflation)], ['Returns before / after', pctv(x.retBefore) + ' / ' + pctv(x.retAfter)]])),
+        ['Inflation', pctv(x.inflation)], ['Returns before / after', pctv(x.retBefore) + ' / ' + pctv(x.retAfter)],
+        x.goldCounted === null ? null : ['Physical gold', x.goldCounted ? 'Counted' : 'Not counted' + (isNum(x.goldOut) && x.goldOut > 0 ? ' (' + F.inrShort(x.goldOut) + ')' : '')]])),
       h('div', { class: 'btns', style: { marginTop: '8px' } }, h('button', { class: 'btn', id: 'fireedit', onclick: () => { state.formId = 'settings'; state.formBack = 'fire'; ctx.go('form'); } }, 'Change in FIRE assumptions'))),
     s.provisional ? h('p', { class: 'hint', style: { margin: '8px 4px' } }, 'These figures update after the tracker is next opened in Excel.') : null];
   return { title: 'FIRE', back, body };

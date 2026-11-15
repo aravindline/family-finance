@@ -95,6 +95,10 @@ export function extractSnapshot(wb) {
     out.fire.lastsUntil = at(d, fr + 1, C('K')); out.fire.yearsToFire = num(at(d, fr + 1, C('M')));
   }
 
+  // ---- v31: one "what I'll do better" note per person per month (Month Notes)
+  out.monthNotes = tbl(wb, 'tblMonthNotes').filter(r => r['Note ID'] && String(r.Status || '') !== 'Deleted')
+    .map(r => ({ id: str(r['Note ID']), month: (iso(r.Month) || '').slice(0, 7), person: str(r.Person), note: str(r.Note), at: str(r['Entered at']) }));
+  out.v31 = !!(wb.tables && wb.tables.tblMonthNotes);
   // ---- monthly tracker (history)
   out.monthly = tbl(wb, 'tblMonthly').map(r => ({
     month: iso(r['Month']), fy: str(r['FY']), income: num(r['Total income (₹)']), expenses: num(r['Expenses (₹)']),
@@ -259,7 +263,7 @@ export function extractSnapshot(wb) {
         living: num(v('E', 'After retirement: living', 'F')), trips: num(v('E', 'After retirement: trips', 'F')), inflation: num(v('I', 'General inflation', 'J')),
         retBefore: num(v('I', 'Blended return before retirement', 'J')), retAfter: num(v('I', 'Return after retirement', 'J')),
         needed: num(v('I', 'Needed at retirement, in today', 'J')), projected: num(v('I', 'Projected at retirement, in today', 'J')), monthlyNeeded: num(v('I', 'Monthly investing needed', 'J')),
-        lasts: v('I', 'Money lasts until', 'J'), actual: num(v('I', 'Actual monthly investing', 'J')), model }; } }
+        lasts: v('I', 'Money lasts until', 'J'), actual: num(v('I', 'Actual monthly investing', 'J')), goldOut: num(v('A', 'Physical gold left out', 'B')), model }; } }
   { const st = sheetGrid(wb, 'Settings'); const byLabel = {}; if (st) for (let r = 7; r <= 120; r++) { const l = str(at(st, r, 2)); if (l) byLabel[l] = { ref: 'C' + r, v: at(st, r, 3) }; }
     const g = l => byLabel[l] || null; out.settingCells = byLabel;
     const dob = num(g("Aravind's date of birth") && g("Aravind's date of birth").v);

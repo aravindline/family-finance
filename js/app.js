@@ -26,8 +26,9 @@ import * as V12 from './views-v12.js';
 import * as MV from './views-move.js';
 import * as V13 from './views-v13.js';
 import * as V14 from './views-v14.js';
+import * as V15 from './views-v15.js';
 
-export const APP_VERSION = '0.14.0 (FIRE details, one-tap tracker update)';
+export const APP_VERSION = '0.15.0 (kakeibo, month notes, automatic tracker update)';
 const $app = document.getElementById('app');
 
 // ---------- appearance (kept outside the vault so the lock screen matches)
@@ -109,7 +110,11 @@ async function doSync(manual) {
   try {
     const ops = V.all('outbox').sort((a, b) => a.seq - b.seq);
     const prev = V.get('sync', 'state') || {};
-    const res = await syncOnce({ transport: t, ops, who: who(), device: deviceName(), lastEtag: manual ? null : prev.etag });
+    const prevSnap = snap(); const sch = prevSnap && prevSnap.schema;
+    const due = !settings().holdUpgrade && (!sch || sch < MV.TEMPLATE.version); // a tracker update is due: read the whole file
+    const res = await syncOnce({ transport: t, ops, who: who(), device: deviceName(), lastEtag: manual || due ? null : prev.etag,
+      upgrade: settings().holdUpgrade ? null : MV.upgrader(who()), maxSchema: MV.TEMPLATE.version });
+    if (res.upgraded) { await MV.afterUpgrade(res.upgraded, prevSnap); toast('Tracker updated to v' + res.upgraded.to + ' · ' + res.upgraded.copied + ' entries checked', 'good'); }
     for (const id of res.applied) await V.remove('outbox', id);
     for (const c of res.conflicts) { await V.put('conflict', c.op.opId, c); await V.remove('outbox', c.op.opId); }
     if (!res.unchanged) {
@@ -118,7 +123,7 @@ async function doSync(manual) {
       try { await C2.recordHistory(sn); } catch (e) { /* history is optional */ }
     }
     try { await syncSuggestions(); } catch (e) { if (manual) toast('Suggestion box: ' + e.message, 'bad'); }
-    await V.put('sync', 'state', { lastSync: new Date().toISOString(), lastError: null, etag: res.etag || prev.etag });
+    await V.put('sync', 'state', { lastSync: new Date().toISOString(), lastError: null, etag: res.etag || prev.etag, upgradeError: res.upgradeError || null });
     if (manual || res.applied.length) toast(res.applied.length ? 'Synced ' + res.applied.length + ' change' + (res.applied.length > 1 ? 's' : '') + ' to the tracker' : 'Up to date');
     if (res.conflicts.length) toast(res.conflicts.length + ' change needs your choice', 'bad');
   } catch (e) {
@@ -151,20 +156,21 @@ setInterval(() => { if (V.isUnlocked() && navigator.onLine && document.visibilit
 const TABS = [['home', 'Home', 'home'], ['spend', 'Money', 'spend'], ['add', '', 'plus'], ['wealth', 'Wealth', 'wealth'], ['more', 'More', 'more']];
 const TAB_OF = { home: 'home', spend: 'spend', addexpense: 'spend', addincome: 'spend', income: 'spend', reports: 'spend', recurring: 'spend', events: 'spend', activity: 'home', conflicts: 'home',
   wealth: 'wealth', plan: 'wealth', fire: 'wealth', alerts: 'wealth', checks: 'wealth', lent: 'more', protection: 'more', documents: 'more', settings: 'more', more: 'more', changelock: 'more', backup: 'more', restore: 'more',
-  monthly: 'more', deposits: 'more', gratuity: 'more', caticons: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more' };
+  monthly: 'more', deposits: 'more', gratuity: 'more', caticons: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more', notes: 'more', privacy: 'more' };
 function syncPill() {
   const st = V.get('sync', 'state') || {}; const pending = V.all('outbox').length; const conflicts = V.all('conflict').length;
   let cls = 'pill', text;
   if (conflicts) { cls += ' bad'; text = conflicts + ' to resolve'; }
   else if (CONFIG.demo) { cls += ' off'; text = 'Demo · no sync'; }
-  else if (Auth.needsSignIn()) { cls += ' bad'; text = 'Sign in to sync'; }
+  else if (Auth.needsSignIn()) { cls += ' bad'; text = 'Re-confirm'; }
   else if (!navigator.onLine) { cls += ' off'; text = 'Offline' + (pending ? ' · ' + pending + ' pending' : ''); }
   else if (state.syncing) { cls += ' busy'; text = 'Syncing…'; }
   else if (pending) { cls += ' pending'; text = pending + ' pending'; }
   else { cls += ' ok'; text = st.lastSync ? 'Synced ' + F.ago(st.lastSync) : 'Not synced'; }
-  return h('button', { class: cls, id: 'syncpill', 'aria-label': 'Sync status: ' + text + '. Tap for details.', onclick: () => conflicts ? go('conflicts') : syncSheet() },
+  return h('button', { class: cls, id: 'syncpill', 'aria-label': Auth.needsSignIn() && !conflicts ? 'Microsoft needs a quick re-confirm. Tap to continue.' : 'Sync status: ' + text + '. Tap for details.', onclick: () => conflicts ? go('conflicts') : Auth.needsSignIn() && !CONFIG.demo ? doSync(true) : syncSheet() },
     h('span', { class: 'led', 'aria-hidden': 'true' }), h('span', { id: 'pending', 'data-count': pending }, text));
 }
+// Microsoft asks every so often (about once a day for an app like this) to confirm the sign-in: the pill goes straight there
 function syncSheet() {
   const st = V.get('sync', 'state') || {}; const s = snap(); const pending = V.all('outbox').length;
   sheet('Sync',
@@ -243,7 +249,18 @@ function shell(view) { // view: { title, back?, body: [nodes] }
   $app.className = 'app shell';
   const demo = CONFIG.demo ? h('div', { class: 'demobar', id: 'demobar', role: 'note' }, 'DEMO COPY · made-up data · nothing reaches your tracker') : null;
   $app.replaceChildren(...[topbar(view.title, view), demo].filter(Boolean), h('main', { class: 'page', id: 'main' }, tipFor(state.view), ...view.body), nav());
+  requestAnimationFrame(fitTables);
 }
+// a table wider than its card: shorten the figures in that table only (one decimal, % without decimals, "<1%")
+function fitTables() {
+  for (const tb of document.querySelectorAll('table.cmp')) {
+    const box = tb.parentElement; if (!box || tb.dataset.fit) continue;
+    if (tb.scrollWidth <= box.clientWidth + 1) continue;
+    tb.dataset.fit = 'short';
+    for (const c of tb.querySelectorAll('td.num, td.num span, td.num div')) for (const n of c.childNodes) if (n.nodeType === 3 && n.textContent.trim()) n.textContent = F.shortFig(n.textContent.trim());
+  }
+}
+
 const NO_REOPEN = ['addexpense', 'addincome', 'formedit', 'kite', 'intlpaste', 'cas', 'move', 'changelock', 'backup', 'restore', 'conflicts', 'lock', 'forgot', 'setup'];
 // Phone back button: every screen change is a browser history step, so Back returns to the previous screen
 // (or closes an open sheet) instead of leaving the app.
@@ -396,12 +413,13 @@ async function viewSettings() {
       row('Hide amounts when the app opens', 'Privacy mode: every ₹ figure shows as dots until you tap the eye button at the top. Hidden again after every lock.', sw(s.hideOnOpen !== false, 'Hide amounts when the app opens', async () => { await saveSettings({ hideOnOpen: s.hideOnOpen === false }); render(); })),
       row('Text size', null, sel([['system', 'Same as phone'], ['small', 'Small'], ['default', 'Standard'], ['large', 'Large']], size, async v => { await meta.set('textSize', v); applyLook(); }, 'Text size'))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Help')),
-      row('Tips', 'Every one-time tip in one place.', h('button', { class: 'btn', id: 'sethelp', onclick: () => go('help') }, 'Open'))),
+      row('Tips', 'Every one-time tip in one place.', h('button', { class: 'btn', id: 'sethelp', onclick: () => go('help') }, 'Open')),
+      row('Privacy', 'Where your data is and what the app talks to, in plain words.', h('button', { class: 'btn', id: 'setpriv', onclick: () => go('privacy') }, 'Open'))),
     h('h2', { class: 'sec-h', id: 'advanced' }, 'Advanced'),
     CONFIG.demo ? null : installCard(),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Tracker version')),
-      h('p', { class: 'hint' }, snap() && snap().schema ? 'Your tracker is v' + snap().schema + (snap().schema < MV.TEMPLATE.version ? '. v' + MV.TEMPLATE.version + ' is ready: one tap carries all your entries into it.' : ', the latest.') : 'Sync first to see the version.'), h('div', { class: 'spacer' }),
-      h('div', { class: 'btns' }, h('button', { class: 'btn' + (snap() && snap().schema < MV.TEMPLATE.version ? ' primary' : ''), id: 'setmove', onclick: () => go('move') }, 'Update the tracker'))),
+      h('p', { class: 'hint' }, snap() && snap().schema ? 'Your tracker is v' + snap().schema + (snap().schema < MV.TEMPLATE.version ? '. It updates to v' + MV.TEMPLATE.version + ' by itself at the next sync.' : ', the latest. New versions arrive by themselves when you sync.') : 'Sync first to see the version.'), h('div', { class: 'spacer' }),
+      h('div', { class: 'btns' }, h('button', { class: 'btn', id: 'setmove', onclick: () => go('move') }, 'Tracker version'))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Backup')),
       h('p', { class: 'hint' }, 'An encrypted file that only your current PIN or passphrase can open. Keep it in OneDrive.'), h('div', { class: 'spacer' }),
       h('div', { class: 'btns' }, h('button', { class: 'btn', onclick: () => go('backup') }, 'Export backup'), h('button', { class: 'btn', onclick: () => go('restore') }, 'Import backup'))),
@@ -603,6 +621,8 @@ async function render() {
     case 'handover': return shell(HV.viewHandover());
     case 'year': return shell(YV.viewYear());
     case 'move': return shell(MV.viewMove());
+    case 'notes': return shell(V15.viewNotes());
+    case 'privacy': return shell(V15.viewPrivacy());
     default: state.view = 'home'; return shell(M.viewHome());
   }
 }
