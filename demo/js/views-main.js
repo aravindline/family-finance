@@ -1,4 +1,5 @@
 // Home (dashboard), Spend and Add expense.
+import * as P from './people.js';
 import * as K from './kakeibo.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
@@ -13,18 +14,18 @@ import { swipeable, parseAmount, confirmAmount } from './ui.js';
 import { handoverItem } from './views-handover.js';
 import { homeTiles } from './views-v13.js';
 
-const PEOPLE = ['Family', 'Aravind', 'Madhu'];
+const PEOPLE = P.VIEWS; // Family + each money holder (v32: names from the tracker)
 const key = p => (p === 'Family' ? 'family' : p.toLowerCase());
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const isoToday = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 
-export function personSeg(onChange) { return seg(PEOPLE, state.person, p => { state.person = p; (onChange || ctx.render)(); }, 'Person'); }
+export function personSeg(onChange) { if (PEOPLE.length < 2) return null; return seg(PEOPLE, state.person, p => { state.person = p; (onChange || ctx.render)(); }, 'Person'); }
 export function asOfLine(s) {
   return h('p', { class: 'asof' }, s.sample ? tag('SAMPLE DATA', 'sample') : null, ' As of last sync' + (s.recalcAt ? ' · figures worked out ' + F.dateTime(s.recalcAt) : s.asOf ? ' · tracker saved ' + F.date(s.asOf) : ''),
     s.provisional ? [' ', tag('PROVISIONAL', 'prov')] : null);
 }
 export function trendPoints(s, person) {
-  const k = person === 'Family' ? 'nwF' : person === 'Aravind' ? 'nwA' : 'nwM';
+  const k = person === 'Family' ? 'nwF' : P.isP2(person) ? 'nwM' : 'nwA';
   return (s.monthly || []).filter(r => typeof r[k] === 'number').slice(-12).map(r => ({ x: F.monthLabel(r.month), y: r[k] }));
 }
 function monthEntries(ym, who) { return ctx.entriesView().filter(e => (e.date || '').startsWith(ym) && (!who || who === 'All' || e.by === who)); }
@@ -150,7 +151,7 @@ function todoItems(s) {
   for (const it of dueItems()) out.push({ icon: 'calendar', t: it.t.name + ' · ' + F.inr(it.t.amount), sub: 'Recurring, due ' + F.date(it.date) + ' · ' + it.t.category + (it.t.sub ? ' › ' + it.t.sub : ''),
     btns: [h('button', { class: 'btn small', 'aria-label': 'Skip ' + it.t.name, onclick: async () => { await skip(it); ctx.render(); } }, 'Skip'),
       h('button', { class: 'btn primary small', 'aria-label': 'Add ' + it.t.name, onclick: async () => { await approve(it); ctx.render(); } }, 'Add')] });
-  for (const l of C2.followUps().slice(0, 3)) out.push({ icon: 'hand', id: 'followups', t: 'Ask ' + l.borrower + ' for ' + F.inr(l.outstanding), sub: 'Lent by ' + l.by + ' on ' + F.date(l.date) + ' · follow up was ' + F.date(l.followUp), go: 'lent' });
+  for (const l of (P.on('lent') ? C2.followUps() : []).slice(0, 3)) out.push({ icon: 'hand', id: 'followups', t: 'Ask ' + l.borrower + ' for ' + F.inr(l.outstanding), sub: 'Lent by ' + l.by + ' on ' + F.date(l.date) + ' · follow up was ' + F.date(l.followUp), go: 'lent' });
   { const bd = C2.budgetsFor(ym); const budgets = Object.fromEntries(Object.entries(bd).map(([c, x]) => [c, x.avail])); const all = monthEntries(ym, 'All'); const spent = sum(all, e => e.amount);
     const dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5)), 0).getDate(); const projected = day > 3 ? spent / day * dim : null;
     const al = budgetAlerts(ym, byCategory(all), budgets, spent, projected);
@@ -221,7 +222,7 @@ export function viewSpend() {
   const head = h('div', { class: 'toolbar' },
     h('div', { class: 'row-between', style: { flex: '1 1 220px' } }, h('button', { class: 'iconbtn', 'aria-label': 'Previous month', onclick: () => shift(-1) }, icon('left')), h('h2', { id: 'spendmonth' }, F.monthLabel(ym, true)),
       h('button', { class: 'iconbtn', 'aria-label': 'Next month', disabled: isNow || null, onclick: () => shift(1) }, icon('right'))),
-    seg([['All', 'Family'], 'Aravind', 'Madhu'], whoF, v => { state.spendWho = v; ctx.render(); }, 'Whose spending'));
+    P.MEMBERS.length < 2 ? null : seg([['All', 'Family'], ...P.MEMBERS], whoF, v => { state.spendWho = v; ctx.render(); }, 'Whose spending'));
   const tools = h('div', { class: 'btnrow', id: 'moneytools' },
     h('button', { class: 'btn', id: 'reportsbtn', onclick: () => ctx.go('reports') }, icon('chart', 16), 'Reports'),
     h('button', { class: 'btn', id: 'budgetsbtn', onclick: () => C2.budgetEditor() }, icon('pie', 16), 'Budgets'),
@@ -352,6 +353,6 @@ export function viewAddExpense() {
     h('div', { class: 'label-sm' }, 'Date'), dateBox,
     modes.length ? [h('div', { class: 'label-sm' }, 'Paid by (optional)'), modeBox] : null,
     h('div', { class: 'label-sm' }, 'Note'), notes,
-    C2.eventChips(f),
+    P.on('events') ? C2.eventChips(f) : null,
     h('div', { class: 'sticky-save' }, h('button', { class: 'btn primary', style: { flex: 2 }, id: 'saveexp', onclick: () => save(false) }, 'Save'), !ed ? h('button', { class: 'btn', style: { flex: 1 }, id: 'saveagain', onclick: () => save(true) }, 'Save + new') : null))] };
 }

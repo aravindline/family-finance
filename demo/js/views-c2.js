@@ -2,6 +2,7 @@
 // goal icons, suggestion box, learned categories and net worth in years of retirement spend.
 // Records the tracker keeps (events, loans, repayments, budgets, notes) go through the outbox as
 // addRow / setRow; the screens show them at once, marked "not synced" until the tracker has them.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, toast, card, empty, tag, sheet, bar, seg, haptic, parseAmount, catIcon, setCatIcons, CAT_ICONS } from './ui.js';
@@ -110,7 +111,7 @@ export function viewLent() {
       h('div', { class: 'sub' }, ['Lent by ' + l.by, F.date(l.date), l.followUp && l.state !== 'Settled' ? 'follow up ' + F.date(l.followUp) : null].filter(Boolean).join(' · '))),
     h('div', { class: 'end num' }, F.inr(l.outstanding), h('div', { class: 'sub' }, 'of ' + F.inr(l.amount)))));
   return { title: 'Money lent', back: 'more', body: [
-    h('div', { class: 'tiles' }, ['Aravind', 'Madhu'].map(p => h('div', { class: 'tile' }, h('div', { class: 't-l' }, p + ' is owed'), h('div', { class: 't-v num' }, F.inr(tot(p)))))),
+    h('div', { class: 'tiles' }, P.HOLDERS.map(p => h('div', { class: 'tile' }, h('div', { class: 't-l' }, p + ' is owed'), h('div', { class: 't-v num' }, F.inr(tot(p)))))),
     h('div', { class: 'spacer' }),
     h('div', { class: 'toolbar' }, seg([['open', 'Open'], ['all', 'All']], show, v => { state.tab.lent = v; ctx.render(); }, 'Show')),
     card(null, null, rows.length ? h('ul', { class: 'list', id: 'lentlist' }, rows) : empty(show === 'open' ? 'Nobody owes you money.' : 'Nothing recorded yet.')),
@@ -118,8 +119,8 @@ export function viewLent() {
     h('button', { class: 'btn primary wide', id: 'addloan', onclick: () => loanForm() }, icon('plus', 18), 'Record money lent')] };
 }
 function loanForm() {
-  let by = ctx.who() || 'Aravind', fu = '';
-  const who = h('div'); const drawWho = () => who.replaceChildren(seg(['Aravind', 'Madhu'], by, v => { by = v; drawWho(); }, 'Lent by')); drawWho();
+  let by = P.HOLDERS.includes(ctx.who()) ? ctx.who() : P.p1(), fu = '';
+  const who = h('div'); const drawWho = () => who.replaceChildren(P.HOLDERS.length < 2 ? '' : seg(P.HOLDERS, by, v => { by = v; drawWho(); }, 'Lent by')); drawWho();
   const borrower = h('input', { class: 'field', id: 'lborrower', placeholder: 'Name', maxlength: 40, 'aria-label': 'Borrower' });
   const amount = h('input', { class: 'field', id: 'lamount', inputmode: 'decimal', placeholder: '0', 'aria-label': 'Amount' });
   const date = h('input', { class: 'field', type: 'date', id: 'ldate', value: today(), max: today(), 'aria-label': 'Date lent' });
@@ -322,7 +323,7 @@ export function viewSuggest() {
     card('New suggestion', null, field('About', area), field('Priority', prBox), text, h('div', { class: 'spacer' }),
       h('button', { class: 'btn primary wide', id: 'sendsg', onclick: async () => {
         const t = text.value.trim(); if (!t) return toast('Type your suggestion', 'bad');
-        const rec = { id: 'S-' + uuid().slice(0, 8), at: new Date().toISOString(), area: area.value, text: t, priority: pr, by: ctx.who() || 'Aravind', sent: false };
+        const rec = { id: 'S-' + uuid().slice(0, 8), at: new Date().toISOString(), area: area.value, text: t, priority: pr, by: ctx.who() || P.p1(), sent: false };
         await ctx.V.put('suggest', rec.id, rec); toast(file ? 'Saved. It goes to the suggestion box at the next sync.' : 'Saved on this phone. Connect the suggestion box file below to send it.'); ctx.scheduleSync(2000); ctx.render();
       } }, 'Save suggestion')),
     card('Your suggestions', null, mine.length ? h('ul', { class: 'list', id: 'sglist' }, mine.map(x => h('li', { class: 'li wrap' }, h('span', { class: 'lead' }, icon('msg', 16)),

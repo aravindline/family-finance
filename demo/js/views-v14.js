@@ -1,6 +1,7 @@
 // App 0.14.0 (Aravind, 12 Nov 2026): the FIRE card on Wealth › Goals & FIRE and the FIRE details screen it opens
 // (mock-up approved 12 Nov). The card answers one question: where you land at retirement compared with what you
 // need. Every age and year comes from Settings through the FIRE Plan sheet; nothing is fixed in the app.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, s as svgEl, tag, card, empty, icon } from './ui.js';
@@ -19,6 +20,24 @@ export function fireFigures(s) {
     coastYear: coast ? coast.year : null, coastAge: coast && isNum(coast.age) ? coast.age : null, monthlyNeeded: fp.monthlyNeeded, target: fp.target, actual: fp.actual,
     lasts: fp.lasts, goldOut: fp.goldOut, goldCounted: goldCounted(s), living: fp.living, trips: fp.trips, inflation: fp.inflation, retBefore: fp.retBefore, retAfter: fp.retAfter, start: fp.start, model: fp.model || [] };
 }
+// The FIRE plan cannot be worked out without these settings (each one left blank makes the whole plan 0; checked
+// setting by setting on sample data, 15 Nov 2026). When the plan is empty, the card names what is missing.
+// v32: the labels carry the first family member's name as the tracker has it
+const FIRE_NEEDS = L1 => [L1 + "'s date of birth", 'Plan until ' + L1 + "'s age", 'Plan starts (year)', L1 + ' stops working at age'];
+const l1Of = s => (s && s.people && s.people.l1) || P.BAKED[0];
+export function fireMissing(s) {
+  const d = s && s.forms && s.forms.settings; if (!d) return [];
+  return FIRE_NEEDS(l1Of(s)).map(l => d.rows.find(r => r.label === l)).filter(r => r && r.in && (r.v === null || r.v === undefined || r.v === '' || r.v === 0));
+}
+function fireEmpty(s) {
+  const miss = fireMissing(s);
+  const go = () => { const r = miss[0]; state.formId = 'settings'; state.formGroup = r ? r.group : null; ctx.go(r ? 'formedit' : 'form'); };
+  const msg = !s ? 'Your FIRE plan shows here after the first sync.'
+    : miss.length ? 'Your FIRE plan needs ' + miss.map(r => r.label.replace(new RegExp('^' + l1Of(s) + "'s "), 'your ')).join(', ').replace(/, ([^,]*)$/, ' and $1') + '. Fill ' + (miss.length === 1 ? 'it' : 'them') + ' in once, and the plan appears after the next sync.'
+    : 'Your FIRE plan works out to nothing with the current FIRE assumptions. Check the ages and spending there.';
+  return h('div', { class: 'stack', id: 'fireempty' }, h('p', { class: 'hint', style: { margin: 0 } }, msg),
+    s ? h('div', { class: 'btns', style: { marginTop: '10px' } }, h('button', { class: 'btn primary', id: 'firefill', onclick: go }, miss.length ? 'Fill in ' + (miss.length === 1 ? 'the missing setting' : 'the missing settings') : 'Open FIRE assumptions')) : null);
+}
 const statusTag = x => tag(x.onTrack ? 'On track' : 'Behind', x.onTrack ? 'ok' : 'warn');
 const retireLine = x => [x.fireDate ? 'Retire ' + F.monthLabel(x.fireDate, true) : null, x.yearsToGo !== null ? Math.round(x.yearsToGo) + ' years to go' : null, "today's money"].filter(Boolean).join(' · ');
 
@@ -26,7 +45,7 @@ const retireLine = x => [x.fireDate ? 'Retire ' + F.monthLabel(x.fireDate, true)
 export function fireCard(s) {
   const x = fireFigures(s);
   const open = () => { state.fireBack = state.view; ctx.go('fire'); };
-  if (!x) return card('FIRE', null, empty('Fill FIRE assumptions (More › FIRE & goals) and open the tracker once in Excel to see your FIRE plan.'));
+  if (!x) return h('section', { class: 'card', id: 'firecard' }, h('h2', { class: 'ttl strong', style: { margin: '0 0 8px', fontSize: '1rem' } }, 'FIRE'), fireEmpty(s));
   const frac = x.projected > 0 ? Math.min(1, x.needed / x.projected) : 0; // where "needed" sits on the projected bar
   return h('section', { class: 'card tap', id: 'firecard', role: 'button', tabindex: 0, 'aria-label': 'FIRE, opens FIRE details', onclick: open, onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
     h('div', { class: 'row-between' }, h('h2', { class: 'ttl strong', style: { margin: 0, fontSize: '1rem' } }, 'FIRE'), statusTag(x)),
@@ -69,9 +88,15 @@ const kv = rows => h('div', { class: 'kv' }, rows.filter(Boolean).flatMap(([a, b
 const money = v => (isNum(v) ? F.inrShort(v) : '–');
 const pctv = v => (isNum(v) ? F.pct(v, v * 100 % 1 ? 1 : 0) : '–');
 
+// one family FIRE number, each money holder's own stop-working age (Aravind 15 Nov 2026: "individual retirement age and one FIRE value")
+function retireAges(s, x) {
+  const pl = (s && s.plan) || {}; const age = v => isNum(v) ? String(v) : '–';
+  if (P.holders().length < 2) return [['Retirement age', age(isNum(x.retireAge) ? x.retireAge : pl.retireA)]];
+  return [[P.p1() + ' stops work at', age(isNum(x.retireAge) ? x.retireAge : pl.retireA)], [P.p2() + ' stops work at', age(pl.retireM)]];
+}
 export function viewFire() {
   const s = ctx.snap(); const x = fireFigures(s); const back = state.fireBack || 'wealth';
-  if (!x) return { title: 'FIRE', back, body: [card(null, null, empty('Fill FIRE assumptions (More › FIRE & goals) and open the tracker once in Excel to see your FIRE plan.'))] };
+  if (!x) return { title: 'FIRE', back, body: [card(null, null, fireEmpty(s))] };
   const lasts = x.lasts === null || x.lasts === undefined || x.lasts === '' ? '–' : String(x.lasts);
   const needM = isNum(x.monthlyNeeded) ? (x.monthlyNeeded > 0 ? F.inrShort(x.monthlyNeeded) : '₹0 (already on track)') : '–';
   const body = [
@@ -86,7 +111,7 @@ export function viewFire() {
     card('Monthly investing', null, kv([['Needed', needM], ['Your target', money(x.target)], isNum(x.actual) && x.actual > 0 ? ['Actual (last 12 months)', money(x.actual)] : null])),
     card('After FIRE', null, kv([['Money lasts until age', lasts]])),
     h('details', { class: 'card', id: 'fireassum' }, h('summary', { class: 'ttl strong' }, 'Assumptions'),
-      h('div', { style: { marginTop: '8px' } }, kv([['Retirement age', isNum(x.retireAge) ? String(x.retireAge) : '–'], ['Spend after FIRE', isNum(x.living) ? F.inr((x.living || 0) + (x.trips || 0)) + ' / month' : '–'],
+      h('div', { style: { marginTop: '8px' } }, kv([...retireAges(s, x), ['Spend after FIRE', isNum(x.living) ? F.inr((x.living || 0) + (x.trips || 0)) + ' / month' : '–'],
         ['Inflation', pctv(x.inflation)], ['Returns before / after', pctv(x.retBefore) + ' / ' + pctv(x.retAfter)],
         x.goldCounted === null ? null : ['Physical gold', x.goldCounted ? 'Counted' : 'Not counted' + (isNum(x.goldOut) && x.goldOut > 0 ? ' (' + F.inrShort(x.goldOut) + ')' : '')]])),
       h('div', { class: 'btns', style: { marginTop: '8px' } }, h('button', { class: 'btn', id: 'fireedit', onclick: () => { state.formId = 'settings'; state.formBack = 'fire'; ctx.go('form'); } }, 'Change in FIRE assumptions'))),

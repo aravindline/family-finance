@@ -1,5 +1,6 @@
 // Recurring fixed-amount entries (rent and the like). Nothing is logged until the person approves it.
 // Templates live encrypted on this device (and in its backup); each belongs to the person using the device.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, toast, card, empty, tag, sheet, parseAmount } from './ui.js';
@@ -127,7 +128,7 @@ export function activity(limit = 50) {
 export function activityList(items) {
   const me = ctx.who(); const seen = ctx.settings().feedSeen || '';
   return h('ul', { class: 'list feed' }, items.map(x => h('li', { class: 'li wrap' },
-    h('span', { class: 'lead av ' + (x.who === 'Madhu' ? 'm' : 'a'), 'aria-hidden': 'true' }, x.who[0]),
+    h('span', { class: 'lead av ' + (P.isP2(x.who) ? 'm' : 'a'), 'aria-hidden': 'true' }, x.who[0]),
     h('div', { class: 'body' }, h('div', { class: 'ttl' }, (x.who === me ? 'You' : x.who) + ' ' + x.verb + ' ' + F.inr(x.e.amount) + ' · ' + x.e.category + (x.changed ? ' (edited)' : '')),
       h('div', { class: 'sub' }, [F.ago(x.when), x.e.sub, x.e.notes].filter(Boolean).join(' · '))),
     x.who !== me && seen && x.when > seen ? tag('NEW', 'good') : null)));
@@ -151,8 +152,9 @@ const PLACES = [
   ['Month notes', 'notes', 'doc', 'month end note better review kakeibo reflection'],
   ['Privacy', 'privacy', 'lock', 'privacy data where safe google microsoft'],
   ['Report a problem', 'report', 'info', 'report problem bug error wrong fault feedback help'],
-  ['Recurring', 'recurring', 'calendar', 'rent fixed monthly approval'], ['Family activity', 'activity', 'spend', 'feed madhu aravind'],
-  ['Settings', 'settings', 'gear', 'sync onedrive'], ['Help', 'help', 'info', 'tips'], ['How holdings are grouped', 'grouping', 'pie', 'investment types type rules'], ['Settings › Fingerprint', 'settings', 'finger', 'biometric unlock'],
+  ['Recurring', 'recurring', 'calendar', 'rent fixed monthly approval'], ['Family activity', 'activity', 'spend', 'feed family who'],
+  ['Settings', 'settings', 'gear', 'sync onedrive'], ['Help', 'help', 'info', 'tips'], ['Guide', 'guide', 'doc', 'help how to start join share tour'],
+  ['Send feedback', 'feedback', 'msg', 'idea suggestion question maker email'], ['Family', 'family', 'c_people', 'names people add person member'], ['Sections', 'sections', 'eye', 'hide show turn off on parts'], ['How holdings are grouped', 'grouping', 'pie', 'investment types type rules'], ['Settings › Fingerprint', 'settings', 'finger', 'biometric unlock'],
   ['Settings › Lock timing', 'settings', 'lock', 'grace auto lock pin'], ['Settings › Hide amounts', 'settings', 'eye', 'privacy mode'],
   ['Settings › Theme and text size', 'settings', 'gear', 'dark light font'], ['Settings › Backup', 'settings', 'gear', 'export import restore'],
 ];
@@ -166,7 +168,7 @@ export function openSearch() {
     if (!q) { out.replaceChildren(h('p', { class: 'hint' }, 'Try: rent, food 450, fingerprint, term plan, flexi')); return; }
     const words = q.split(/\s+/); const hit = txt => words.every(w => txt.toLowerCase().includes(w));
     const groups = [];
-    const pl = PLACES.filter(p => hit(p[0] + ' ' + p[3])).slice(0, 6);
+    const pl = PLACES.filter(p => P.viewOn(p[1]) && hit(p[0] + ' ' + p[3])).slice(0, 6); // S4: switched-off sections are not offered
     if (pl.length) groups.push(['Screens and settings', pl.map(p => h('li', { class: 'li tap', onclick: () => goTo(p[1]) }, h('span', { class: 'lead' }, icon(p[2], 16)), h('div', { class: 'body' }, h('div', { class: 'ttl' }, p[0])), icon('right', 16)))]);
     const en = ctx.entriesView().filter(e => e.status !== 'Deleted' && hit([e.category, e.sub, e.notes, e.mode, e.by, e.amount, F.date(e.date)].join(' '))).slice(0, 8);
     if (en.length) groups.push(['Expenses', en.map(e => h('li', { class: 'li tap', onclick: () => goTo('spend', () => { state.spendMonth = e.date.slice(0, 7); state.spendQ = input.value.trim(); state.spendCat = ''; }) },

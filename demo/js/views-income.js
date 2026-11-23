@@ -3,13 +3,14 @@
 // them up by month (Salary -> take-home columns, everything else -> Other income). The add screen is reached from the
 // centre + button with an Expense | Income switch. Analytics: month on month, year on year, growth, spending,
 // savings rate, Madhu vs Aravind.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, toast, card, empty, tag, sheet, seg, haptic, columnChart, trendChart, catIcon, SERIES, swipeable , parseAmount } from './ui.js';
 import { uuid } from './crypto.js';
 import * as Voice from './voice.js';
 
-const PEOPLE = ['Aravind', 'Madhu'];
+const PEOPLE = P.HOLDERS; // v32: names from the tracker
 const DEFAULT_CATS = [{ name: 'Salary', goes: 'Take-home', subs: ['Monthly payout', 'Variable pay', 'Bonus', 'Others'] },
   { name: 'Investment / savings income', goes: 'Other income', subs: ['Dividends', 'Interest', 'Others'] },
   { name: 'Rewards', goes: 'Other income', subs: [] }, { name: 'Gifts', goes: 'Other income', subs: [] }, { name: 'Others', goes: 'Other income', subs: [] }];
@@ -69,13 +70,16 @@ const table = (head, rows, id) => h('div', { class: 'tablewrap' }, h('table', { 
 const td = (x, cls = 'num') => h('td', { class: cls }, x);
 const shortCat = c => c === 'Investment / savings income' ? 'Investment income' : c;
 
-// "For Aravind / Madhu": whose expense or income this is. Preset to whoever uses the phone; one tap switches to the
+// "For <name>": whose expense or income this is. Preset to whoever uses the phone; one tap switches to the
 // other person when entering for them. Entered by is always the phone's user, and only they can change the entry later.
+// v32: an expense can be for any family member; income for the money holders. One name only: no pill.
 export function forPill(f, key) {
+  const list = key === 'person' ? P.HOLDERS : P.MEMBERS; if (list.length < 2 && f[key] === list[0]) return null;
+  const nextOf = n => list[(list.indexOf(n) + 1) % list.length] || list[0];
   const b = h('button', { class: 'forpill', id: 'forwho', type: 'button' });
-  const draw = () => { const other = f[key] !== ctx.who(); b.className = 'forpill' + (other ? ' other' : ''); b.setAttribute('aria-label', 'For ' + f[key] + '. Tap to enter it for ' + (f[key] === 'Aravind' ? 'Madhu' : 'Aravind'));
+  const draw = () => { const other = f[key] !== ctx.who(); b.className = 'forpill' + (other ? ' other' : ''); b.setAttribute('aria-label', 'For ' + f[key] + '. Tap to enter it for ' + nextOf(f[key]));
     b.replaceChildren(icon('c_user', 14), h('span', {}, 'For ' + f[key]), icon('sync', 12)); };
-  b.onclick = () => { f[key] = f[key] === 'Aravind' ? 'Madhu' : 'Aravind'; haptic(); draw(); };
+  b.onclick = () => { f[key] = nextOf(f[key]); haptic(); draw(); };
   draw(); return b;
 }
 // Mic next to the amount (0.11.0): one tap, speak in English, the form is filled in. Nothing saves until Save.
@@ -107,7 +111,7 @@ export function viewIncome() {
   const who = state.incWho || 'Family'; const mode = state.incMode === 'Year' ? 'Year' : 'Month'; const kind = state.incKind || 'All income';
   const all0 = incomeList(); const all = kind === 'Salary' ? all0.filter(e => e.category === 'Salary') : all0;
   const list = who === 'Family' ? all : all.filter(e => e.person === who);
-  const head = h('div', { class: 'toolbar' }, seg(['Family', ...PEOPLE], who, v => { state.incWho = v; ctx.render(); }, 'Whose income'),
+  const head = h('div', { class: 'toolbar' }, PEOPLE.length < 2 ? null : seg(['Family', ...PEOPLE], who, v => { state.incWho = v; ctx.render(); }, 'Whose income'),
     seg(['All income', 'Salary'], kind, v => { state.incKind = v; ctx.render(); }, 'Which income'),
     seg(['Month', 'Year'], mode, v => { state.incMode = v; ctx.render(); }, 'Compare by'));
   const addBtn = h('div', { class: 'btns', style: { margin: '0 0 12px' } }, h('button', { class: 'btn primary', id: 'addincbtn', onclick: () => ctx.go('addincome') }, icon('plus', 16), 'Add income'));
@@ -166,8 +170,8 @@ export function viewIncome() {
     const ytdOld = ytd.map(m => addMonths(m, -12)); const allYtd = ytd.reduce((t, m) => t + tot(by, m), 0);
     const pRows = PEOPLE.map(p => { const a = ytd.reduce((t, m) => t + ((by[m] && by[m].p[p]) || 0), 0), b = ytdOld.reduce((t, m) => t + ((by[m] && by[m].p[p]) || 0), 0);
       return h('tr', {}, td(p, ''), td(F.inr(a)), td(allYtd ? F.pct(a / allYtd, 0) : '–'), td(gTag(growth(a, b)))); });
-    vs = card((kind === 'Salary' ? 'Salary · ' : '') + 'Madhu vs Aravind', null,
-      columnChart(span.map(m => ({ x: F.monthLabel(m), parts: PEOPLE.map(p => (by[m] && by[m].p[p]) || 0) })), { series: PEOPLE, colors: [SERIES[0], SERIES[1]], label: 'Income by person and month' }),
+    vs = card((kind === 'Salary' ? 'Salary · ' : '') + PEOPLE.slice().reverse().join(' vs '), null,
+      columnChart(span.map(m => ({ x: F.monthLabel(m), parts: PEOPLE.map(p => (by[m] && by[m].p[p]) || 0) })), { series: PEOPLE, colors: PEOPLE.map((x, i) => SERIES[i % SERIES.length]), label: 'Income by person and month' }),
       table(['Person', 'FY' + String(fy + 1).slice(2) + ' so far', 'Share', 'vs LY'], pRows, 'incvs'));
   }
   const entries = list.filter(e => e.month === latest).sort((a, b) => b.date.localeCompare(a.date));

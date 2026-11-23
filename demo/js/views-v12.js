@@ -1,12 +1,13 @@
 // 0.12.0 (tracker v28): EPF set once a year, and holdings linked to goals. Both write only to the app's own tables
 // (tblEPF, tblGoalLinks); the tracker works out the EPF balance, the monthly EPF figure and each goal's linked value.
+import * as P from './people.js';
 import { ctx } from './ctx.js';
 import * as W from './wealth.js';
 import * as F from './fmt.js';
 import { h, icon, toast, haptic, seg, tag, card, empty, sheet, bar, parseAmount } from './ui.js';
 import { uuid } from './crypto.js';
 
-const PEOPLE = ['Aravind', 'Madhu'];
+const PEOPLE = P.HOLDERS;
 const pad = n => String(n).padStart(2, '0');
 const ymNow = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1); };
 const serialOfYm = ym => { const [y, m] = ym.split('-').map(Number); return Math.round((Date.UTC(y, m - 1, 1) - Date.UTC(1899, 11, 30)) / 86400000); };
@@ -63,11 +64,11 @@ export function viewEPF() {
 }
 function monthInput(id, value, label) { return h('input', { class: 'field', type: 'month', id, value, 'aria-label': label, style: { width: 'auto' } }); }
 function epfForm(kind) {
-  const f = { person: ctx.who() || 'Aravind' };
+  const f = { person: PEOPLE.includes(ctx.who()) ? ctx.who() : P.p1() };
   const amt = h('input', { class: 'field', id: 'epfamt', inputmode: 'decimal', placeholder: '0', 'aria-label': 'Amount' });
   const from = monthInput('epffrom', kind === 'Monthly contribution' ? fyStart() : kind === 'Opening balance' ? fyStart() : ymNow(), kind === 'Monthly contribution' ? 'From month' : 'Month');
   const to = kind === 'Monthly contribution' ? monthInput('epfto', fyEnd(), 'To month') : null;
-  const who = h('div'); const drawWho = () => who.replaceChildren(seg(PEOPLE, f.person, v => { f.person = v; drawWho(); }, 'Whose EPF'));
+  const who = h('div'); const drawWho = () => who.replaceChildren(PEOPLE.length < 2 ? '' : seg(PEOPLE, f.person, v => { f.person = v; drawWho(); }, 'Whose EPF'));
   drawWho();
   const title = { 'Monthly contribution': 'Monthly EPF amount', 'Opening balance': 'EPF opening balance', 'Interest credited': 'EPF interest credited' }[kind];
   const sh = sheet(title, h('div', { class: 'stack' }, who,
@@ -97,7 +98,7 @@ function epfSheet(e) {
 }
 
 // ---------------------------------------------------------------- Goal links
-// What can be linked, grouped the way Aravind asked: class › account holder › holding (e.g. Equity › Aravind › ITC)
+// What can be linked, grouped the way Aravind asked: class › account holder › holding (e.g. Equity › <name> › ITC)
 export const LINK_CLASSES = ['Equity', 'Mutual funds', 'Bonds & debt', 'International', 'Gold & silver', 'FD / RD', 'Savings account', 'Other'];
 const isFund = t => /\bMF\b|fund|ETF/i.test(t || '');
 const isDebtT = t => /debt|bond|arbitrage|liquid|gilt|money market|overnight/i.test(t || '');
@@ -114,7 +115,7 @@ export function linkables() {
     const t = (r.type || '') + ' ' + (r.name || ''); if (s.v29 && /\(from the FD \/ RD list\)/i.test(r.name || '')) continue;
     const cls = /savings|current account|bank|cash at home/i.test(t) ? 'Savings account' : /rental/i.test(t) ? 'Other' : /deposit|\bFD\b|\bRD\b|post office|NSC|KVP|SCSS/i.test(t) ? 'FD / RD' : /EPF|VPF|NPS|PPF|Sukanya/i.test(t) ? 'Other' : /gold|silver/i.test(t) ? 'Gold & silver' : /vehicle|money lent/i.test(t) ? null : 'Other';
     if (!cls) continue;
-    if (r.aravind) add(cls, 'Aravind', r.name, r.aravind); if (r.madhu) add(cls, 'Madhu', r.name, r.madhu);
+    if (r.aravind) add(cls, P.p1(), r.name, r.aravind); if (r.madhu && P.p2()) add(cls, P.p2(), r.name, r.madhu);
   }
   return out;
 }

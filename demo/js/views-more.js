@@ -1,4 +1,5 @@
 // Wealth, Plan, Protection, Documents, Alerts and the More menu. Read-only views of the tracker.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, seg, tag, bar, card, moreBtn, empty, statusKind, statusIcon, trendChart, SERIES, sheet, donut } from './ui.js';
@@ -60,7 +61,7 @@ export function viewWealth() {
         h('div', { class: 'spacer' }), C2.notesBlock('Net worth', (s.monthly || []).slice(-12).map(r => r.month.slice(0, 7)))),
       card('Summary', null, h('div', { class: 'kv' }, h('span', {}, 'Total assets'), h('span', {}, F.inr(A[k])), h('span', {}, 'Loans'), h('span', { class: 'loss' }, F.inr(L[k])),
         h('span', {}, 'Net worth'), h('span', {}, F.inr(N[k]))),
-        p === 'Family' && N.aravind !== undefined ? [h('div', { class: 'spacer' }), h('div', { class: 'kv' }, h('span', {}, 'Aravind'), h('span', {}, F.inr(N.aravind) + ' · ' + F.pct(N.family ? N.aravind / N.family : 0, 0)), h('span', {}, 'Madhu'), h('span', {}, F.inr(N.madhu) + ' · ' + F.pct(N.family ? N.madhu / N.family : 0, 0)))] : null),
+        p === 'Family' && N.aravind !== undefined && P.HOLDERS.length > 1 ? [h('div', { class: 'spacer' }), h('div', { class: 'kv' }, h('span', {}, P.p1()), h('span', {}, F.inr(N.aravind) + ' · ' + F.pct(N.family ? N.aravind / N.family : 0, 0)), h('span', {}, P.p2()), h('span', {}, F.inr(N.madhu) + ' · ' + F.pct(N.family ? N.madhu / N.family : 0, 0)))] : null),
       V13.mixCard(s, p),
       p === 'Family' && (s.allocation || []).some(a => a.target) ? card('Allocation vs your target', null, h('ul', { class: 'list' }, s.allocation.filter(a => a.target || a.value).map(a =>
         li(a.name, 'Actual ' + F.pct(a.pct, 1) + ' · target ' + F.pct(a.target, 0), a.status ? tag(a.status, statusKind(a.status)) : null, a.move ? (a.move > 0 ? 'Below target by ' : 'Above target by ') + F.inrShort(Math.abs(a.move)) : null, { wrap: true }))),
@@ -100,7 +101,7 @@ export function viewWealth() {
       h('div', { class: 'spacer' }),
       h('div', { class: 'grid two' }, acctCard(s, hold, others),
         card('Concentration', p === 'Family' ? null : tag('Family', 'plain'), famNote, concentration(s)),
-        card('Stress test', p === 'Family' ? null : tag('Family', 'plain'), (s.stress || []).length ? h('ul', { class: 'list' }, s.stress.map(x => li(x.name, 'Portfolio after: ' + F.inrShort(x.after) + ' · Aravind ' + F.pct(x.fallA, 0) + ', Madhu ' + F.pct(x.fallM, 0), h('span', { class: 'loss' }, '−' + F.inrShort(Math.abs(x.loss || 0))), tag(x.status || '–', statusKind(x.status)), { wrap: true }))) : empty('Set the stress cases on the Settings sheet.'))),
+        card('Stress test', p === 'Family' ? null : tag('Family', 'plain'), (s.stress || []).length ? h('ul', { class: 'list' }, s.stress.map(x => li(x.name, 'Portfolio after: ' + F.inrShort(x.after) + ' · ' + P.p1() + ' ' + F.pct(x.fallA, 0) + (P.p2() ? ', ' + P.p2() + ' ' + F.pct(x.fallM, 0) : ''), h('span', { class: 'loss' }, '−' + F.inrShort(Math.abs(x.loss || 0))), tag(x.status || '–', statusKind(x.status)), { wrap: true }))) : empty('Set the stress cases on the Settings sheet.'))),
       h('div', { class: 'spacer' }), (state.holdOpen || G) ? subChips : null, seeAll);
   }
 
@@ -195,7 +196,7 @@ function holdingsCard(hold, others, title) {
 export function viewPlan() {
   const s = ctx.snap(); if (!s) return noData('Plan');
   const em = s.emergency || {};
-  const fireCard = V14.fireCard(s); // v14: one takeaway; the details open on tap (Aravind, 12 Nov 2026)
+  const fireCard = P.on('fire') ? V14.fireCard(s) : null; // v14: one takeaway; the details open on tap (Aravind, 12 Nov 2026)
   const bk = (s.buckets || []).filter(b => b.target || b.actual);
   const target = card('Monthly saving & investing', null, bk.length ? h('div', {}, bk.map(b => h('div', { class: 'hbar' }, h('span', { class: 'ttl' }, b.name), h('span', { class: 'num' }, F.inrShort(b.actual), h('span', { class: 'faint' }, ' / ' + F.inrShort(b.target))),
     b.target ? bar(b.actual / b.target, b.actual >= b.target ? 'good' : 'warn') : null))) : empty('Set your monthly target on the Settings sheet.'),
@@ -219,7 +220,7 @@ export function viewProtection() {
   const s = ctx.snap(); if (!s) return noData('Insurance');
   const pol = (s.insurance || []).filter(x => x.sum || x.premium || x.insurer);
   const pr = s.protection || {};
-  const summary = card('Cover', null, Object.keys(pr).length ? h('div', { class: 'kv' }, Object.entries(pr).flatMap(([l, v]) => [h('span', {}, l), h('span', {}, typeof v.family === 'number' ? (/vs yearly|\(x\)/.test(l) ? v.family.toFixed(1) + '×' : F.inr(v.family)) : (typeof v.aravind === 'number' || typeof v.madhu === 'number' ? 'Aravind ' + F.inrShort(v.aravind || 0) + ' · Madhu ' + F.inrShort(v.madhu || 0) : '–'))])) : empty('No cover recorded.'));
+  const summary = card('Cover', null, Object.keys(pr).length ? h('div', { class: 'kv' }, Object.entries(pr).flatMap(([l, v]) => [h('span', {}, l), h('span', {}, typeof v.family === 'number' ? (/vs yearly|\(x\)/.test(l) ? v.family.toFixed(1) + '×' : F.inr(v.family)) : (typeof v.aravind === 'number' || typeof v.madhu === 'number' ? P.p1() + ' ' + F.inrShort(v.aravind || 0) + (P.p2() ? ' · ' + P.p2() + ' ' + F.inrShort(v.madhu || 0) : '') : '–'))])) : empty('No cover recorded.'));
   const list = card('Policies', null, pol.length ? h('ul', { class: 'list' }, pol.sort((a, b) => (a.days ?? 9e9) - (b.days ?? 9e9)).map(x => li(x.name, [x.type, x.covers, x.insurer, x.nominee ? 'nominee ' + x.nominee : 'no nominee'].filter(Boolean).join(' · '),
     F.inrShort(x.sum), (x.renewal ? 'renews ' + F.date(x.renewal) : '') + (x.days !== null && x.days !== undefined && x.days <= 60 ? ' (' + x.days + ' days)' : ''), { wrap: true, lead: statusIcon(statusKind(x.status || (x.nominee ? 'ok' : 'missing'))) }))) : empty('Add policies on the Insurance sheet.'));
   return { title: 'Insurance', back: 'more', body: [h('div', { class: 'grid two' }, list, summary)] };

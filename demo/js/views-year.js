@@ -1,5 +1,6 @@
 // Year in review: one financial year (April to March) at a glance. Income, spending, savings rate, net worth change
 // and goal progress, for the family or one person, with the year before for comparison where there is data.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, seg, card, empty, bar, tag } from './ui.js';
@@ -21,7 +22,7 @@ export function yearData(s, entries, y, p) {
   const months = new Set([...inc.map(e => String(e.date || e.month).slice(0, 7)), ...sp.map(e => e.date.slice(0, 7))]);
   const byMonth = {}; for (const e of sp) { const m = e.date.slice(0, 7); byMonth[m] = (byMonth[m] || 0) + Number(e.amount || 0); }
   const top = Object.entries(byMonth).sort((a, b) => b[1] - a[1])[0] || null;
-  const k = p === 'Family' ? 'nwF' : p === 'Aravind' ? 'nwA' : 'nwM';
+  const k = p === 'Family' ? 'nwF' : P.isP2(p) ? 'nwM' : 'nwA';
   const nwRows = (s.monthly || []).filter(r => inFy(r.month, y) && typeof r[k] === 'number' && r[k] !== 0);
   const nwStart = nwRows.length ? nwRows[0] : null, nwEnd = nwRows.length ? nwRows[nwRows.length - 1] : null;
   const savedInv = p === 'Family' ? sum((s.monthly || []).filter(r => inFy(r.month, y)), r => r.saved) : null;
@@ -61,7 +62,7 @@ export function viewYear() {
     h('h2', { class: 'formhead' }, 'Year in review'),
     h('div', { class: 'toolbar' },
       seg(years.slice(0, 4).map(v => [v, fyLabel(v)]), y, v => { state.yrFy = Number(v); ctx.render(); }, 'Financial year'),
-      seg([['Family', 'Family'], ['Aravind', 'Aravind'], ['Madhu', 'Madhu']], p, v => { state.yrPerson = v; ctx.render(); }, 'Whose year')),
+      P.VIEWS.length < 2 ? null : seg(P.VIEWS.map(x => [x, x]), p, v => { state.yrPerson = v; ctx.render(); }, 'Whose year')),
     h('p', { class: 'hint', style: { margin: '0 4px 12px' }, id: 'yrnote' }, fyLabel(y) + ' runs April ' + y + ' to March ' + (y + 1) + (y === now ? ', so it is still going: figures are to date.' : '.') + (d.months ? ' ' + d.months + ' month' + (d.months === 1 ? '' : 's') + ' with entries.' : '')),
     h('div', { class: 'grid two' },
       card('Money in and out', null, d.nIncome + d.nSpend ? h('div', { class: 'kv', id: 'yrmoney' },

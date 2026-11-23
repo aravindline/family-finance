@@ -2,17 +2,19 @@
 // (yellow fill) and it holds no formula; everything else in a block is shown read-only. Dropdown choices come from
 // the tracker's own dropdown lists, so a list changed in the tracker shows up here after the next sync.
 import { col2n, n2col, serialToISO } from './xlsx.js';
+import { BAKED } from './people.js';
 
 // t: text | money | num | pct | date | month | year | choice | phone | email
 const N = x => Number(x) || 0;
-export const FORMS = [
-  { id: 'assets', group: 'assets', title: 'Bank, cash and other balances', sub: 'Balances split between Aravind and Madhu', sheet: 'Other Assets', rows: [7, 37], stamp: 'B3', topicCol: 'C', topicDefault: 'cash',
+function make(A, M) {
+  const list = [
+  { id: 'assets', group: 'assets', title: 'Bank, cash and other balances', sub: 'Balances split between ' + A + (M ? ' and ' + M : ''), sheet: 'Other Assets', rows: [7, 37], stamp: 'B3', topicCol: 'C', topicDefault: 'cash',
     label: { c: 'A' }, show: ['D', 'E'], readonly: [{ c: 'F', l: 'Family (₹)', t: 'money', calc: v => N(v('D')) + N(v('E')) }, { c: 'H', l: 'Class (auto)', t: 'text' }],
     fields: [{ c: 'A', l: 'Item', t: 'text' }, { c: 'B', l: 'Bank / institution', t: 'text' }, { c: 'C', l: 'Type', t: 'choice' },
-      { c: 'D', l: 'Aravind (₹)', t: 'money' }, { c: 'E', l: 'Madhu (₹)', t: 'money' }, { c: 'G', l: 'Notes', t: 'text' }] },
+      { c: 'D', l: A + ' (₹)', t: 'money' }, { c: 'E', l: M + ' (₹)', t: 'money' }, { c: 'G', l: 'Notes', t: 'text' }] },
   { id: 'gold', group: 'assets', title: 'Physical gold', sub: 'Grams held and the rate used', sheet: 'Other Assets', stamp: 'B3',
-    cells: [{ r: 'K5', l: 'Gold rate used (₹ per gram)', t: 'money' }, { r: 'K8', l: 'Aravind (grams)', t: 'num' }, { r: 'L8', l: 'Madhu (grams)', t: 'num' }],
-    readonly: [{ r: 'M9', l: 'Value (₹)', t: 'money', calc: v => (N(v('K8')) + N(v('L8'))) * N(v('K5')) }, { r: 'K9', l: 'Aravind (₹)', t: 'money', calc: v => N(v('K8')) * N(v('K5')) }, { r: 'L9', l: 'Madhu (₹)', t: 'money', calc: v => N(v('L8')) * N(v('K5')) }] },
+    cells: [{ r: 'K5', l: 'Gold rate used (₹ per gram)', t: 'money' }, { r: 'K8', l: A + ' (grams)', t: 'num' }, { r: 'L8', l: M + ' (grams)', t: 'num' }],
+    readonly: [{ r: 'M9', l: 'Value (₹)', t: 'money', calc: v => (N(v('K8')) + N(v('L8'))) * N(v('K5')) }, { r: 'K9', l: A + ' (₹)', t: 'money', calc: v => N(v('K8')) * N(v('K5')) }, { r: 'L9', l: M + ' (₹)', t: 'money', calc: v => N(v('L8')) * N(v('K5')) }] },
   { id: 'vehicles', group: 'assets', title: 'Vehicles', sub: 'Value after depreciation counts in net worth', sheet: 'Other Assets', rows: [25, 26], stamp: 'B3',
     label: { c: 'J' }, show: ['K', 'L'], readonly: [{ c: 'O', l: 'Value now (₹)', t: 'money', calc: v => N(v('L')) ? Math.round(N(v('L')) * Math.pow(1 - N(v('N')), Math.max(0, new Date().getFullYear() - N(v('M'))))) : null }],
     fields: [{ c: 'J', l: 'Vehicle', t: 'text' }, { c: 'K', l: 'Owner', t: 'choice' }, { c: 'L', l: 'Price paid (₹)', t: 'money' }, { c: 'M', l: 'Year bought', t: 'year' }, { c: 'N', l: 'Depreciation % a year', t: 'pct' }] },
@@ -48,13 +50,13 @@ export const FORMS = [
     fields: [{ c: 'Y', l: 'Broker (as typed on each stock)', t: 'text' }, { c: 'Z', l: 'Default owner', t: 'choice' }, { c: 'AA', l: 'Holdings as on', t: 'date' },
       { c: 'AB', l: 'Currency (blank = USD)', t: 'choice' }, { c: 'AC', l: '₹ per unit (blank = currency rate)', t: 'num' }] },
   // v29: gratuity for both (Aravind, 11 Nov 2026); the Gratuity sheet works out the amounts
-  { id: 'gratuity', group: 'assets', back: 'gratuity', title: 'Gratuity details', sub: 'Company, joining date, basic + DA, for Aravind and Madhu', sheet: 'Gratuity',
-    cells: [['C', 'Aravind'], ['D', 'Madhu']].flatMap(([c, p]) => [{ r: c + '6', l: p + ': company', t: 'text' }, { r: c + '7', l: p + ': joining date', t: 'date' }, { r: c + '8', l: p + ': monthly basic + DA (₹)', t: 'money' },
+  { id: 'gratuity', group: 'assets', back: 'gratuity', title: 'Gratuity details', sub: 'Company, joining date, basic + DA' + (M ? ', for ' + A + ' and ' + M : ''), sheet: 'Gratuity',
+    cells: [['C', A], ['D', M]].flatMap(([c, p]) => [{ r: c + '6', l: p + ': company', t: 'text' }, { r: c + '7', l: p + ': joining date', t: 'date' }, { r: c + '8', l: p + ': monthly basic + DA (₹)', t: 'money' },
       { r: c + '9', l: p + ': monthly total pay, gross (₹, optional)', t: 'money' }, { r: c + '10', l: p + ': fixed-term employee?', t: 'choice' }]) },
 
   { id: 'loans', group: 'loans', title: 'Loans', sub: 'Outstanding, rate, EMI and dates', sheet: 'Loans', rows: [7, 15], stamp: 'B3',
     label: { c: 'A' }, show: ['C', 'D'], readonly: [{ c: 'E', l: 'Total (₹)', t: 'money', calc: v => N(v('C')) + N(v('D')) }, { c: 'K', l: 'EMIs left (auto)', t: 'num' }, { c: 'L', l: 'Last EMI (auto)', t: 'month' }, { c: 'M', l: 'Interest still to pay (₹)', t: 'money' }],
-    fields: [{ c: 'A', l: 'Loan', t: 'text' }, { c: 'B', l: 'Lender', t: 'text' }, { c: 'C', l: 'Aravind outstanding (₹)', t: 'money' }, { c: 'D', l: 'Madhu outstanding (₹)', t: 'money' },
+    fields: [{ c: 'A', l: 'Loan', t: 'text' }, { c: 'B', l: 'Lender', t: 'text' }, { c: 'C', l: A + ' outstanding (₹)', t: 'money' }, { c: 'D', l: M + ' outstanding (₹)', t: 'money' },
       { c: 'F', l: 'Interest %', t: 'pct' }, { c: 'G', l: 'EMI (₹)', t: 'money' }, { c: 'H', l: 'Closes (month)', t: 'month' }, { c: 'J', l: 'Next EMI month', t: 'month' }, { c: 'I', l: 'Notes', t: 'text' }] },
   { id: 'insurance', group: 'protect', title: 'Insurance policies', sub: 'Cover, premium, renewal and nominee', sheet: 'Insurance', rows: [5, 14], stamp: 'B3',
     label: { c: 'A' }, show: ['E', 'G'], readonly: [{ c: 'J', l: 'Days to renewal', t: 'num' }, { c: 'K', l: 'Renewal status', t: 'text' }],
@@ -74,7 +76,7 @@ export const FORMS = [
     fields: [{ c: 'A', l: 'Goal', t: 'text' }, { c: 'B', l: 'Owner', t: 'choice' }, { c: 'C', l: "Today's cost (₹)", t: 'money' }, { c: 'D', l: 'Target year', t: 'year' },
       { c: 'E', l: 'Inflation %', t: 'pct' }, { c: 'F', l: 'Linked assets', t: 'text' }, { c: 'G', l: 'Set aside so far (₹)', t: 'money' }, { c: 'H', l: 'Return on set-aside %', t: 'pct' },
       { c: 'I', l: 'Monthly contribution (₹)', t: 'money' }, { c: 'P', l: 'Forecast?', t: 'choice' }, { c: 'O', l: 'Notes', t: 'text' }] },
-  { id: 'settings', group: 'plan', title: 'FIRE assumptions', sub: 'Every planning assumption', sheet: 'Settings', settings: [7, 120] },
+  { id: 'settings', group: 'plan', title: 'FIRE assumptions', sub: 'Every planning assumption', sheet: 'Settings', settings: [7, 106] },
   { id: 'expcatnames', group: 'lists', title: 'Extra expense categories', sub: 'Name a spare to start using it as a new category', sheet: 'Expenses', anyCell: true,
     cells: 'NOPQR'.split('').map((c, i) => ({ r: c + '26', l: 'Spare category ' + (i + 1), t: 'text', suffix: ' (₹)' })) },
   { id: 'expcats', group: 'lists', title: 'Expense sub-categories', sub: 'Up to 8 per category', sheet: 'Expense Categories', rows: [6, 21], noAdd: true, onlyFilledLabel: true,
@@ -100,14 +102,10 @@ export const FORMS = [
     label: { c: 'A' }, show: ['B'], fields: [{ c: 'A', l: 'Symbol', t: 'text' }, { c: 'B', l: 'Sector', t: 'choice' }, { c: 'C', l: 'Notes', t: 'text' }] },
   { id: 'sectorlist', group: 'lists', title: 'Sector names', sub: 'The list the sector picker uses', sheet: 'Sectors', rows: [5, 40],
     label: { c: 'E' }, show: [], fields: [{ c: 'E', l: 'Sector', t: 'text' }] },
-];
-
-// unit text on the Settings sheet -> field type
-// Handover packs (tracker v25+): one sheet per person. The owner edits; the other person sees them view-only.
-export const HANDOVER = { review: [168, 207] };
-for (const [owner, tag] of [['Aravind', 'A'], ['Madhu', 'M']]) {
+  ];
+for (const [owner, tag] of [[A, 'A'], [M, 'M']]) {
   const sheet = 'Handover ' + owner, g = 'ho' + tag, o = { group: g, owner, sheet, back: 'handover' };
-  FORMS.push(
+  list.push(
     { ...o, id: g + 'accounts', title: 'Accounts & policies', sub: 'Bank accounts, deposits, demat, folios, cards, loans, retirement and insurance', rows: [6, 65],
       label: { c: 'A' }, show: ['B', 'C'],
       fields: [{ c: 'A', l: 'Institution', t: 'text' }, { c: 'B', l: 'Type', t: 'choice' }, { c: 'C', l: 'Account number', t: 'text' }, { c: 'D', l: 'Nominee', t: 'text' },
@@ -125,7 +123,19 @@ for (const [owner, tag] of [['Aravind', 'A'], ['Madhu', 'M']]) {
       label: { c: 'A', t: 'date' }, show: ['C'],
       fields: [{ c: 'A', l: 'Date reviewed', t: 'date' }, { c: 'B', l: 'Reviewed by', t: 'choice' }, { c: 'C', l: 'What changed', t: 'text', wide: true }] });
 }
+  return list;
+}
+// FORMS follows the family's names in the tracker (tracker v32): the money columns and handover sheets carry them.
+// A / M: the names in the file's labels (member 1, member 2 or the placeholder in a family of one).
+export const FORMS = [];
+export const HANDOVER = { review: [168, 207] };
+let formNames = '';
+export function setFormNames(A, M) { const k = A + '|' + M; if (k === formNames) return; formNames = k; FORMS.length = 0; FORMS.push(...make(A, M)); }
+setFormNames(BAKED[0], BAKED[1]);
 
+
+// unit text on the Settings sheet -> field type
+// Handover packs (tracker v25+): one sheet per person. The owner edits; the other person sees them view-only.
 export function unitType(unit, label) {
   const u = String(unit || '').toLowerCase();
   if (u === 'date') return 'date'; if (u === 'month') return 'month'; if (u === 'year') return 'year';

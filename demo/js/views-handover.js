@@ -1,13 +1,14 @@
 // Handover packs (tracker v25+): what the other person would need if one of you is not around.
 // Each person edits their own pack; the other sees it view-only. Every 3 months the app asks the owner to check it.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, toast, seg, card, empty } from './ui.js';
 import { FORMS } from './forms.js';
 import { isoToSerial, serialToISO } from './xlsx.js';
 
-const PEOPLE = ['Aravind', 'Madhu'];
-const tagOf = p => (p === 'Madhu' ? 'M' : 'A');
+const PEOPLE = P.HOLDERS; // one pack per money holder (v32: names from the tracker)
+const tagOf = P.tagOf;
 const blank = v => v === null || v === undefined || v === '';
 const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 const DAYS = 91;
@@ -30,7 +31,7 @@ async function looksRight(p, note) {
   const f = FORMS.find(x => x.id === 'ho' + tagOf(p) + 'review'); const d = f && dataOf(f.id);
   if (!d) return toast('Sync first: your tracker has no handover sheets yet', 'bad');
   const pm = pend(f.sheet); const row = d.rows.find(r => ['A', 'B', 'C'].every(c => blank(pm.has(c + r.r) ? pm.get(c + r.r) : (r.cells[c] || {}).v)) && (r.cells.A || {}).in);
-  if (!row) return toast('The review log is full. Ask Claude for more rows.', 'bad');
+  if (!row) return toast('The review log is full (40 reviews). Clear old rows in the tracker to add more.', 'bad');
   await ctx.queue({ kind: 'setCells', sheet: f.sheet, title: 'Handover · ' + p + ' reviewed', cells: [
     { ref: 'A' + row.r, base: (row.cells.A || {}).v ?? null, value: isoToSerial(todayISO()), label: 'Date reviewed' },
     { ref: 'B' + row.r, base: (row.cells.B || {}).v ?? null, value: p, label: 'Reviewed by' },
@@ -40,17 +41,17 @@ async function looksRight(p, note) {
 
 // Home To do item: shown to the signed-in person when their own pack has not been checked for 3 months
 export function handoverItem() {
-  const me = ctx.who(); if (!me || !hasHandover()) return null;
+  const me = ctx.who(); if (!me || !PEOPLE.includes(me) || !hasHandover() || !P.on('handover')) return null;
   const last = lastReview(me); if (daysSince(last) < DAYS) return null;
   const snooze = (ctx.settings().handoverSnooze || ''); if (snooze && snooze > todayISO()) return null;
-  const other = me === 'Aravind' ? 'Madhu' : 'Aravind';
+  const other = PEOPLE.length < 2 ? 'your family' : P.other(me);
   return { id: 'honudge', icon: 'shield', t: 'Is your handover pack still right?', sub: last ? 'Last checked ' + F.date(last) + '. What ' + other + ' needs if you are not around.' : 'Not checked yet. It tells ' + other + ' what to do if you are not around.',
     btns: [h('button', { class: 'btn small', id: 'holater', onclick: async () => { const d = new Date(); d.setDate(d.getDate() + 7); await ctx.saveSettings({ handoverSnooze: d.toISOString().slice(0, 10) }); ctx.render(); } }, 'Later'),
       h('button', { class: 'btn small', id: 'hoopen', onclick: () => { state.hoPerson = me; ctx.go('handover'); } }, 'Update'),
       h('button', { class: 'btn primary small', id: 'hookay', onclick: () => looksRight(me) }, 'Looks right')] };
 }
 export function viewHandover() {
-  const me = ctx.who() || 'Aravind';
+  const me = PEOPLE.includes(ctx.who()) ? ctx.who() : P.p1();
   if (!state.hoPerson) state.hoPerson = me;
   const p = state.hoPerson; const mine = p === me;
   if (!hasHandover()) return { title: 'Handover', back: 'more', body: [card(null, null, empty('Your tracker has no handover sheets yet. They come with tracker v25: sync after you switch to it.'))] };
@@ -64,8 +65,8 @@ export function viewHandover() {
   const logF = FORMS.find(x => x.id === 'ho' + tagOf(p) + 'review'); const logD = dataOf(logF.id); const lpm = pend(logF.sheet);
   const log = logD ? logD.rows.map(r => ({ d: lpm.has('A' + r.r) ? lpm.get('A' + r.r) : (r.cells.A || {}).v, c: lpm.has('C' + r.r) ? lpm.get('C' + r.r) : (r.cells.C || {}).v })).filter(x => typeof x.d === 'number' && x.d > 0).sort((a, b) => b.d - a.d).slice(0, 5) : [];
   return { title: 'Handover', back: 'more', body: [
-    h('div', { class: 'toolbar' }, seg(PEOPLE, p, v => { state.hoPerson = v; ctx.render(); }, 'Whose pack')),
-    h('p', { class: 'hint', style: { margin: '0 4px 12px' }, id: 'homode' }, mine ? 'Your pack: what ' + (p === 'Aravind' ? 'Madhu' : 'Aravind') + ' would need if you are not around. Never passwords or PINs.' : 'View only: ' + p + ' edits this pack.'),
+    h('div', { class: 'toolbar' }, PEOPLE.length < 2 ? null : seg(PEOPLE, p, v => { state.hoPerson = v; ctx.render(); }, 'Whose pack')),
+    h('p', { class: 'hint', style: { margin: '0 4px 12px' }, id: 'homode' }, mine ? 'Your pack: what ' + (PEOPLE.length < 2 ? 'your family' : P.other(p)) + ' would need if you are not around. Never passwords or PINs.' : 'View only: ' + p + ' edits this pack.'),
     card(p + "'s handover pack", null, h('ul', { class: 'list', id: 'holist' }, items)),
     card('Reviews', null,
       h('p', { class: 'hint', id: 'holast' }, last ? 'Last checked ' + F.date(last) + (daysSince(last) >= DAYS ? '. Due again now.' : '. Next check after ' + F.date(new Date(Date.parse(last) + DAYS * 864e5).toISOString().slice(0, 10)) + '.') : 'Not checked yet.'),

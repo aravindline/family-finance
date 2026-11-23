@@ -210,6 +210,11 @@ select.field { max-width: 100%; }
 .hbar .ttl { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
 .kv > :nth-child(odd) { color: var(--muted); } .kv > :nth-child(even) { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Report a problem: label and value side by side, label on one line (15 Nov feedback) */
+.replist { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 20px; margin: 0; font-size: 14px; }
+.replist dt { color: var(--muted); white-space: nowrap; }
+.replist dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+@media (max-width: 420px) { .replist { grid-template-columns: 1fr; gap: 2px; } .replist dd { margin-bottom: 10px; } }
 
 /* ---------- lock screen */
 .lockmark { width: 64px; height: 64px; border-radius: 20px; background: var(--brand); color: var(--brand-ink); display: grid; place-items: center; }
@@ -269,7 +274,7 @@ table.cmp th, table.cmp td { text-align: left; padding: 6px 8px; border-bottom: 
 .story-hint { text-align: center; font-size: .76rem; opacity: .7; margin: 0; }
 .recap-card { background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 14%, var(--surface)), var(--surface)); cursor: pointer; margin-bottom: 12px; }
 .ttl.strong, p.strong { font-weight: 700; margin: 0; }
-.lead.av { border-radius: 50%; font-weight: 800; color: #fff; } .lead.av.a { background: var(--s1); } .lead.av.m { background: var(--s2); }
+.lead.av { border-radius: 50%; font-weight: 800; color: #fff; background: #5b6b64; } .lead.av.a { background: var(--s1); } .lead.av.m { background: var(--s2); }
 .cmd-results { max-height: 60vh; overflow-y: auto; } .cmd-results .label-sm { margin-top: 10px; }
 .ptr { position: fixed; top: -40px; left: 50%; transform: translateX(-50%); width: 36px; height: 36px; border-radius: 50%; background: var(--surface); box-shadow: 0 2px 10px rgba(0,0,0,.15); display: grid; place-items: center; color: var(--muted); z-index: 70; transition: transform .2s; pointer-events: none; } .ptr.ready { color: var(--brand); }
 /* ---------- skeleton */

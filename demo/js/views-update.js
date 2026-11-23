@@ -1,5 +1,6 @@
 // Month-end update wizard. It only queues edits to INPUT cells and rows of the app's own tables; the sync engine refuses
 // formula cells and turns any cell changed elsewhere since the last sync into a choice for the user.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, toast, seg, tag, card, empty } from './ui.js';
@@ -19,7 +20,7 @@ function moneyInput(id, value, label, onChange) {
     oninput: e => onChange(e.target.value) });
 }
 // one money box per person, each with its own name and a faint tint so the two are never mixed up (phone and laptop)
-const pbox = (who, input) => input ? h('label', { class: 'pbox ' + (who === 'Madhu' ? 'pm' : 'pa') }, h('span', { class: 'pbox-l' }, who), input) : null;
+const pbox = (who, input) => input ? h('label', { class: 'pbox ' + (P.isP2(who) ? 'pm' : 'pa') }, h('span', { class: 'pbox-l' }, who), input) : null;
 const fieldRow = (label, sub, input) => h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, label), sub ? h('div', { class: 'set-d' }, sub) : null), h('div', { class: 'set-c' }, input));
 
 // pending edits from this device for a cell (so the wizard shows what you typed, not the stale value)
@@ -35,6 +36,8 @@ const cur = (sheet, cell) => { const p = pendingValue(sheet, cell.ref); return p
 // ones. NPS is yearly (More › Cash & fixed income). EPF fills itself from the EPF sheet.
 const STEPS = ['Month', 'Kite holdings', 'International prices', 'CAS statement', 'Bank balances and cash', 'New FD / RD', 'Loans', 'Saved & invested', 'Net worth and close the month'];
 const S_BANK = 4, S_FD = 5, S_LOANS = 6, S_SAVED = 7;
+const stepOff = i => (i === 1 && !P.on('kite')) || (i === 2 && !P.on('intl')) || (i === 3 && !P.on('cas')) || (i === S_FD && !P.on('deposits')) || (i === S_LOANS && !P.on('loans'));
+const shownSteps = () => STEPS.map((x, i) => i).filter(i => !stepOff(i));
 const OA_STEP = { [S_BANK]: /savings|current account|bank|cash at home/i, [S_FD]: /fixed deposit|recurring deposit|corporate fd|post office|\bFD\b|\bRD\b|NSC|KVP|SCSS/i };
 const OA_OTHER = /NPS|PPF|Sukanya|gold|silver|vehicle|money lent|rental/i; // yearly or worked out elsewhere: not in the monthly steps
 const IS_EPF = /EPF|VPF/i;
@@ -76,7 +79,7 @@ export function closeFigures(s0, ym, E = {}) {
   for (const p of PEOPLE) {
     const bank = W.bankCash(s, p), fdrd = Math.round(deps.filter(d => d.whose === p).reduce((t, d) => t + W.depositValue(d, asOf), 0));
     const c = W.costs(list, p); const cls = W.byClass(list, p);
-    const loans = s.inputs.loans.length ? Math.round(s.inputs.loans.reduce((t, r) => t + (Number((p === 'Madhu' ? r.madhu : r.aravind).v) || 0), 0)) : W.loansOf(s, p);
+    const loans = s.inputs.loans.length ? Math.round(s.inputs.loans.reduce((t, r) => t + (Number((P.isP2(p) ? r.madhu : r.aravind).v) || 0), 0)) : W.loansOf(s, p);
     const nw = Math.round(Object.values(cls).reduce((t, v) => t + v, 0) - loans);
     const income = incomeList().filter(e => e.status !== 'Deleted' && e.month === ym && e.person === p).reduce((t, e) => t + (Number(e.amount) || 0), 0);
     const pc = prevClose(s, p, ym); let saved = null, invested = null, d = null;
@@ -109,21 +112,21 @@ export function viewMonthly() {
   const hasVal = (k, cell) => { const v = val(k, 'Other Assets', cell); return v !== null && v !== undefined && v !== '' && !Number.isNaN(Number(v)); };
   Wz.added = Wz.added || {};
   const inUse = r => Wz.added[r.row] || hasVal('oaA' + r.row, r.aravind) || hasVal('oaM' + r.row, r.madhu) || !!show(r.where.v) || !TEMPLATE.test(show(r.name.v));
-  const whoShown = r => { const a = hasVal('oaA' + r.row, r.aravind), m = hasVal('oaM' + r.row, r.madhu); if (Wz.added[r.row]) return { a: Wz.added[r.row] === 'Aravind' || a, m: Wz.added[r.row] === 'Madhu' || m }; return a || m ? { a, m } : { a: true, m: true }; };
+  const whoShown = r => { const a = hasVal('oaA' + r.row, r.aravind), m = hasVal('oaM' + r.row, r.madhu); if (Wz.added[r.row]) return { a: Wz.added[r.row] === P.p1() || a, m: (P.p2() && Wz.added[r.row] === P.p2()) || m }; return a || m ? { a, m: m && !!P.p2() } : { a: true, m: !!P.p2() }; };
   const stepRows = st => inp.otherAssets.filter(r => oaStep(r, s.v28) === st && !(r.aravind.f && r.madhu.f));
   const oaRows = st => h('div', {}, ...stepRows(st).filter(inUse).map(r => { const w = whoShown(r); return h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, nm(r)), h('div', { class: 'set-d' }, [E['oaB' + r.row] ? E['oaB' + r.row].value : r.where.v, r.type.v].filter(Boolean).join(' · '))),
-    h('div', { class: 'set-c' }, r.aravind.f || !w.a ? null : pbox('Aravind', moneyInput('oa-a-' + r.row, val('oaA' + r.row, 'Other Assets', r.aravind), show(r.name.v) + ', Aravind', v => setE('oaA' + r.row, 'Other Assets', r.aravind, v, show(r.name.v) + ' · Aravind'))),
-      r.madhu.f || !w.m ? null : pbox('Madhu', moneyInput('oa-m-' + r.row, val('oaM' + r.row, 'Other Assets', r.madhu), show(r.name.v) + ', Madhu', v => setE('oaM' + r.row, 'Other Assets', r.madhu, v, show(r.name.v) + ' · Madhu'))))); }));
+    h('div', { class: 'set-c' }, r.aravind.f || !w.a ? null : pbox(P.p1(), moneyInput('oa-a-' + r.row, val('oaA' + r.row, 'Other Assets', r.aravind), show(r.name.v) + ', ' + P.p1(), v => setE('oaA' + r.row, 'Other Assets', r.aravind, v, show(r.name.v) + ' · ' + P.p1()))),
+      r.madhu.f || !w.m ? null : pbox(P.p2(), moneyInput('oa-m-' + r.row, val('oaM' + r.row, 'Other Assets', r.madhu), show(r.name.v) + ', ' + P.p2(), v => setE('oaM' + r.row, 'Other Assets', r.madhu, v, show(r.name.v) + ' · ' + P.p2()))))); }));
   // "+ Add account": takes the next unused row of this step and names it for one person
   const addBox = st => {
     const free = stepRows(st).filter(r => !inUse(r)); const isBank = st === S_BANK;
-    const count = who => stepRows(st).filter(r => inUse(r) && whoShown(r)[who === 'Aravind' ? 'a' : 'm'] && /savings/i.test(show(r.type.v) || show(r.name.v))).length;
+    const count = who => stepRows(st).filter(r => inUse(r) && whoShown(r)[P.isP2(who) ? 'm' : 'a'] && /savings/i.test(show(r.type.v) || show(r.name.v))).length;
     if (!free.length) return h('p', { class: 'hint' }, 'All rows are in use. More can be added in More › Cash & fixed income.');
     const A = Wz.addForm && Wz.addForm.st === st ? Wz.addForm : null;
-    if (!A) return h('button', { class: 'btn', id: 'oaadd', style: { marginTop: '8px' }, onclick: () => { Wz.addForm = { st, who: ctx.who() || 'Aravind', name: '', bank: '' }; ctx.render(); } }, icon('plus', 16), isBank ? 'Add account' : 'Add FD / RD');
+    if (!A) return h('button', { class: 'btn', id: 'oaadd', style: { marginTop: '8px' }, onclick: () => { Wz.addForm = { st, who: PEOPLE.includes(ctx.who()) ? ctx.who() : P.p1(), name: '', bank: '' }; ctx.render(); } }, icon('plus', 16), isBank ? 'Add account' : 'Add FD / RD');
     const full = isBank && count(A.who) >= MAX_SAVINGS;
     return h('div', { class: 'card inset', id: 'oaaddform', style: { marginTop: '8px' } },
-      fieldRow('Whose', null, seg(PEOPLE, A.who, v => { A.who = v; ctx.render(); }, 'Whose account')),
+      PEOPLE.length < 2 ? null : fieldRow('Whose', null, seg(PEOPLE, A.who, v => { A.who = v; ctx.render(); }, 'Whose account')),
       fieldRow('Name', 'e.g. HDFC savings', h('input', { class: 'field', id: 'oaaddname', maxlength: 40, value: A.name, oninput: e => { A.name = e.target.value; } })),
       fieldRow('Bank', null, h('input', { class: 'field', id: 'oaaddbank', maxlength: 40, value: A.bank, oninput: e => { A.bank = e.target.value; } })),
       full ? h('p', { class: 'warn-text' }, A.who + ' already has ' + MAX_SAVINGS + ' savings accounts here.') : null,
@@ -158,17 +161,17 @@ export function viewMonthly() {
   } else if (step === S_LOANS) {
     const rows = inp.loans;
     content = rows.length ? [h('p', { class: 'hint' }, 'Outstanding at month-end, from the lender\'s statement.'), ...rows.map(r => h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, show(r.name.v)), h('div', { class: 'set-d' }, show(r.lender.v))),
-      h('div', { class: 'set-c' }, r.aravind.f ? null : pbox('Aravind', moneyInput('ln-a-' + r.row, val('lnA' + r.row, 'Loans', r.aravind), show(r.name.v) + ', Aravind', v => setE('lnA' + r.row, 'Loans', r.aravind, v, show(r.name.v) + ' · Aravind outstanding'))),
-        r.madhu.f ? null : pbox('Madhu', moneyInput('ln-m-' + r.row, val('lnM' + r.row, 'Loans', r.madhu), show(r.name.v) + ', Madhu', v => setE('lnM' + r.row, 'Loans', r.madhu, v, show(r.name.v) + ' · Madhu outstanding'))))))] : [empty('No loans on the Loans sheet.')];
+      h('div', { class: 'set-c' }, r.aravind.f ? null : pbox(P.p1(), moneyInput('ln-a-' + r.row, val('lnA' + r.row, 'Loans', r.aravind), show(r.name.v) + ', ' + P.p1(), v => setE('lnA' + r.row, 'Loans', r.aravind, v, show(r.name.v) + ' · ' + P.p1() + ' outstanding'))),
+        r.madhu.f || !P.p2() ? null : pbox(P.p2(), moneyInput('ln-m-' + r.row, val('lnM' + r.row, 'Loans', r.madhu), show(r.name.v) + ', ' + P.p2(), v => setE('lnM' + r.row, 'Loans', r.madhu, v, show(r.name.v) + ' · ' + P.p2() + ' outstanding'))))))] : [empty('No loans on the Loans sheet.')];
   } else if (step === S_SAVED) {
     content = savedStep(s, ym, row, E, fillM, mField, pendingPaste);
   } else {
     const nw = s.netWorth || {}; const fig = closeFigures(s, ym, E);
-    if (fig && !Wz.nwAuto) { Wz.nwAuto = true; fillM('nwA', fig.Aravind.nw); fillM('nwM', fig.Madhu.nw); }
+    if (fig && !Wz.nwAuto) { Wz.nwAuto = true; fillM('nwA', fig[P.p1()].nw); if (P.p2() && fig[P.p2()]) fillM('nwM', fig[P.p2()].nw); }
     const changes = Object.values(E).filter(e => !sameV(e.value, e.base));
     content = [h('p', { class: 'hint' }, fig ? 'Month-end net worth for the history chart, worked out from the steps before (all assets less loans). The tracker\'s own figure is shown too; it updates at the next sync.' : 'Month-end net worth for the history chart. The tracker\'s current figure is shown; it updates at the next sync.'),
-      mField('nwA', 'Tracker now: ' + F.inr(nw.aravind)), mField('nwM', 'Tracker now: ' + F.inr(nw.madhu)),
-      h('div', { class: 'btns', style: { marginTop: '8px' } }, h('button', { class: 'btn', onclick: () => { if (nw.aravind !== null && !inp.monthlyFormula.nwA) setE('mnwA', MT, row.cols.nwA, String(Math.round(nw.aravind)), (L.nwA || 'Aravind net worth') + ' · ' + mon); if (nw.madhu !== null && !inp.monthlyFormula.nwM) setE('mnwM', MT, row.cols.nwM, String(Math.round(nw.madhu)), (L.nwM || 'Madhu net worth') + ' · ' + mon); ctx.render(); } }, 'Use the tracker\'s figures')),
+      mField('nwA', 'Tracker now: ' + F.inr(nw.aravind)), P.p2() ? mField('nwM', 'Tracker now: ' + F.inr(nw.madhu)) : null,
+      h('div', { class: 'btns', style: { marginTop: '8px' } }, h('button', { class: 'btn', onclick: () => { if (nw.aravind !== null && !inp.monthlyFormula.nwA) setE('mnwA', MT, row.cols.nwA, String(Math.round(nw.aravind)), (L.nwA || P.p1() + ' net worth') + ' · ' + mon); if (P.p2() && nw.madhu !== null && !inp.monthlyFormula.nwM) setE('mnwM', MT, row.cols.nwM, String(Math.round(nw.madhu)), (L.nwM || P.p2() + ' net worth') + ' · ' + mon); ctx.render(); } }, 'Use the tracker\'s figures')),
       h('div', { class: 'label-sm', style: { marginTop: '14px' } }, 'Changes to save'),
       changes.length ? h('ul', { class: 'list' }, changes.map(e => h('li', { class: 'li wrap' }, h('div', { class: 'body' }, h('div', { class: 'ttl' }, e.label), h('div', { class: 'sub' }, e.sheet + ' ' + e.ref)),
         h('div', { class: 'end num' }, e.value === '' ? 'blank' : e.date ? F.date(serialToISO(e.value)) : e.text ? e.value : F.inr(e.value), h('div', { class: 'sub' }, 'was ' + (e.base === null || e.base === undefined || e.base === '' ? 'blank' : e.date && typeof e.base === 'number' ? F.date(serialToISO(e.base)) : e.text ? String(e.base) : F.inr(e.base))))))) : empty('No changes yet.'),
@@ -176,8 +179,9 @@ export function viewMonthly() {
       h('label', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, 'Mark balances as updated today'), h('div', { class: 'set-d' }, 'Sets "Last updated" on Other Assets and Loans so the Health Check is happy.')),
         h('input', { type: 'checkbox', id: 'markdates', checked: Wz.markDates !== false, onchange: e => { Wz.markDates = e.target.checked; } }))];
   }
-  const next = () => { Wz.step = Math.min(STEPS.length - 1, step + 1); window.scrollTo(0, 0); ctx.render(); };
-  const prev = () => { Wz.step = Math.max(0, step - 1); window.scrollTo(0, 0); ctx.render(); };
+  // S4 (0.16.0): steps for sections the family switched off are skipped
+  const next = () => { let k = step + 1; while (k < STEPS.length - 1 && stepOff(k)) k++; Wz.step = Math.min(STEPS.length - 1, k); window.scrollTo(0, 0); ctx.render(); };
+  const prev = () => { let k = step - 1; while (k > 0 && stepOff(k)) k--; Wz.step = Math.max(0, k); window.scrollTo(0, 0); ctx.render(); };
   const submit = async () => {
     const changes = Object.values(E).filter(e => !sameV(e.value, e.base));
     const bySheet = {};
@@ -193,8 +197,8 @@ export function viewMonthly() {
   };
   const last = step === STEPS.length - 1;
   return { title: 'Month-end update', back: 'more', body: [h('div', { style: { maxWidth: '680px' } },
-    h('div', { class: 'row-between' }, h('h2', {}, STEPS[step] + (step > 0 ? ' · ' + mon : '')), h('span', { class: 'hint', style: { whiteSpace: 'nowrap' } }, step === 0 ? 'Start' : 'Step ' + step + ' of ' + (STEPS.length - 1))),
-    h('div', { class: 'steps', 'aria-hidden': 'true' }, STEPS.map((x, i) => h('span', { class: i <= step ? 'on' : '' }))),
+    h('div', { class: 'row-between' }, h('h2', {}, STEPS[step] + (step > 0 ? ' · ' + mon : '')), h('span', { class: 'hint', style: { whiteSpace: 'nowrap' } }, step === 0 ? 'Start' : 'Step ' + shownSteps().indexOf(step) + ' of ' + (shownSteps().length - 1))),
+    h('div', { class: 'steps', 'aria-hidden': 'true' }, shownSteps().map(i => h('span', { class: i <= step ? 'on' : '' }))),
     h('section', { class: 'card' }, content),
     h('div', { class: 'sticky-save' }, step > 0 ? h('button', { class: 'btn', style: { flex: 1 }, onclick: prev }, 'Back') : null,
       !last ? h('button', { class: 'btn primary', style: { flex: 2 }, id: 'wiznext', onclick: next }, step >= 1 && step <= 3 ? 'Done, next' : 'Next') : h('button', { class: 'btn primary', style: { flex: 2 }, id: 'wizsave', onclick: submit }, 'Close the month')),
@@ -261,7 +265,7 @@ const spareUsed = (row, k) => { const L = (ctx.snap().inputs.monthlyLabels) || {
 async function saveClose(s, ym, E, sv) {
   const fig = closeFigures(s, ym, E); const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
   for (const p of PEOPLE) { const f = fig[p]; const id = ym + ' ' + p; const x = sv[p] || {};
-    const nwCell = E[p === 'Aravind' ? 'mnwA' : 'mnwM'];
+    const nwCell = E[P.isP2(p) ? 'mnwM' : 'mnwA'];
     const vals = { 'Close ID': id, Month: isoToSerial(ym + '-01'), Person: p, 'Income (₹)': f.income, 'Saved (₹)': x.saved ?? f.saved ?? '', 'Invested (₹)': x.invested ?? f.invested ?? '', 'Bank & cash (₹)': f.bank, 'FD / RD (₹)': f.fdrd,
       'Cost: Indian equity (₹)': f.cost.ind, 'Cost: equity funds (₹)': f.cost.eqf, 'Cost: debt & arbitrage (₹)': f.cost.debt, 'Cost: bonds (₹)': f.cost.bonds, 'Cost: gold (₹)': f.cost.gold, 'Cost: international (₹)': f.cost.intl,
       'Net worth (₹)': nwCell && nwCell.value !== '' ? nwCell.value : f.nw, 'Loans (₹)': f.loans, 'Saved on': now, 'Saved by': ctx.who() || '' };
@@ -280,7 +284,7 @@ function defaultMonth(inp) { const d = new Date(); const lm = new Date(d.getFull
 export function conflictCard(c) {
   const op = c.op; const V = ctx.V;
   const showV = (v, label) => (v === null || v === undefined || v === '' ? 'blank' : typeof v === 'number' ? (/updated/i.test(label || '') ? F.date(serialToISO(v)) : F.inr(v)) : String(v));
-  const why = c.reason === 'full' ? 'The Kite holdings did not fit: ' + c.remote + '. Ask Claude for a tracker with more rows.' : c.reason === 'formula' ? 'The tracker now has a formula in a cell this change wanted to write. The app never overwrites formulas, so this change cannot be applied.' : 'These cells were changed in the tracker after this device last synced.';
+  const why = c.reason === 'full' ? 'The Kite holdings did not fit: ' + c.remote + '. The tracker has room for 1,000 holding rows; leave out accounts you no longer use.' : c.reason === 'formula' ? 'The tracker now has a formula in a cell this change wanted to write. The app never overwrites formulas, so this change cannot be applied.' : 'These cells were changed in the tracker after this device last synced.';
   return h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, op.title || op.sheet)), h('p', { class: 'hint' }, why),
     h('div', { class: 'tablewrap' }, h('table', { class: 'cmp' }, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Your change (' + op.by + ')'), h('th', {}, 'In the tracker now'))),
       h('tbody', {}, (c.cells || []).map(x => h('tr', {}, h('th', {}, x.label || x.ref), h('td', {}, showV(x.value, x.label)), h('td', {}, x.reason === 'formula' ? 'formula' : showV(x.remote, x.label))))))),

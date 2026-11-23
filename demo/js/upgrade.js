@@ -3,6 +3,8 @@
 // Pure functions on Workbook objects, so they can be tested without OneDrive.
 import { moveData, schemaVersion, markUpgraded } from './migrate.js';
 import { tagFor } from './kakeibo.js';
+import { readPeople } from './extract.js';
+import { BAKED, personalise, nameMap } from './people.js';
 
 // formula cells keep the result Excel last worked out in YOUR file when the formula is exactly the same in both
 // versions, so the app shows real figures straight away; Excel recalculates everything when the file is next opened.
@@ -60,6 +62,18 @@ export function fillTags(wb) {
   return n;
 }
 
+// tracker v32 (app 0.16.0): the family's names live in Settings › Family. A tracker before v32 is the first family's own,
+// so the update fills in its two names (only where still blank).
+export function fillFamily(oldWb, newWb, vo) {
+  if (vo >= 32 || !newWb.hasSheet('Settings')) return 0;
+  const g = newWb.grid('Settings'); let n = 0;
+  for (const [r, m] of g) { const l = m.get(2); const k = typeof l === 'string' && /^Family member ([12]) name$/.exec(l.trim()); if (!k) continue;
+    const cur = m.get(3); if (cur !== null && cur !== undefined && cur !== '') continue; newWb.set('Settings', 'C' + r, BAKED[Number(k[1]) - 1]); n++; }
+  return n;
+}
+// a tracker made by "Create my tracker" carries the family's own names: the new version gets the same names first
+export const appMade = wb => { try { return !!wb.tables.tblAppMeta && wb.tableRows('tblAppMeta').some(r => r.Key === 'created'); } catch (e) { return false; } };
+
 // every input cell of your file, read back from the updated file (after saving and opening it again): same value, or listed
 export function checkInputs(oldWb, upWb, rep) {
   const moved = new Map(rep.copied.map(c => [c.sheet + '|' + c.ref, c.value]));
@@ -74,7 +88,9 @@ export function checkInputs(oldWb, upWb, rep) {
 
 // the whole update, on bytes: returns the updated file and a report; throws when anything does not add up
 export async function upgradeBytes(Workbook, oldBytes, templateBytes, { by, at }) {
-  const oldWb = await Workbook.open(oldBytes), newWb = await Workbook.open(templateBytes);
+  const oldWb = await Workbook.open(oldBytes);
+  if (appMade(oldWb)) templateBytes = await personalise(templateBytes, nameMap(readPeople(oldWb).names), { clean: true });
+  const newWb = await Workbook.open(templateBytes);
   const vo = schemaVersion(oldWb), vn = schemaVersion(newWb);
   if (!vo || vo < 29) throw new Error('This update works from tracker v29. Your tracker is ' + (vo ? 'v' + vo : 'an older version') + '.');
   if (vn <= vo) throw new Error('Your tracker is already v' + vo + '.');
@@ -83,11 +99,12 @@ export async function upgradeBytes(Workbook, oldBytes, templateBytes, { by, at }
   if (rep.wrong.length) throw new Error(rep.wrong.length + ' values did not read back the same. Nothing was changed.');
   const notes = carryNotes(oldWb, newWb);
   const tagged = fillTags(newWb);
+  const named = fillFamily(oldWb, newWb, vo);
   const cache = carryCache(oldWb, newWb);
   markUpgraded(newWb, { from: vo, to: vn, by, at });
   const out = await newWb.save();
   const upWb = await Workbook.open(out); const chk = checkInputs(oldWb, upWb, rep);
   if (chk.bad.length) { const e = new Error(chk.bad.length + ' entries did not read back the same from the updated file. Nothing was changed.'); e.check = chk; throw e; }
   if (schemaVersion(upWb) !== vn) throw new Error('The updated file does not say v' + vn + '. Nothing was changed.');
-  return { bytes: out, from: vo, to: vn, copied: rep.copied.length, perSheet: rep.perSheet, cache, notes, tagged, checked: chk.checked };
+  return { bytes: out, from: vo, to: vn, copied: rep.copied.length, perSheet: rep.perSheet, cache, notes, tagged, named, checked: chk.checked };
 }

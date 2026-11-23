@@ -1,3 +1,4 @@
+import * as P from './people.js';
 import * as V from './vault.js';
 import { meta } from './db.js';
 import * as F from './fmt.js';
@@ -28,8 +29,10 @@ import * as V13 from './views-v13.js';
 import * as V14 from './views-v14.js';
 import * as V15 from './views-v15.js';
 import * as RP from './views-report.js';
+import * as V16 from './views-v16.js';
+import { setFormNames } from './forms.js';
 
-export const APP_VERSION = '0.15.1 (figures worked out in the app, re-confirm on unlock, report a problem)';
+export const APP_VERSION = '0.16.0 (family of 1 to 5 names, first-time setup, Create my tracker, sections, guide, feedback)';
 const $app = document.getElementById('app');
 
 // ---------- appearance (kept outside the vault so the lock screen matches)
@@ -114,7 +117,7 @@ async function doSyncRun(manual) {
   if (CONFIG.demo) { if (manual) toast('Demo copy: nothing is synced. Your test entries stay on this device only.'); return; }
   try { await Auth.init(); } catch (e) { /* offline or blocked: currentAccount stays empty */ }
   if (!t || !Auth.currentAccount()) { if (manual) toast('Connect the tracker first: Settings › Sync', 'bad'); return; }
-  if (!who()) { if (manual) toast('Choose who uses this device in Settings first', 'bad'); return; }
+  if (!who() && V.all('outbox').length) { if (manual) toast('Choose who uses this device in Settings first', 'bad'); return; }
   if (!navigator.onLine) { if (manual) toast('Offline. Your edits are saved here and will sync when you are back online.'); return; }
   state.syncing = true; renderTop();
   try {
@@ -168,7 +171,7 @@ setInterval(() => { if (V.isUnlocked() && navigator.onLine && document.visibilit
 const TABS = [['home', 'Home', 'home'], ['spend', 'Money', 'spend'], ['add', '', 'plus'], ['wealth', 'Wealth', 'wealth'], ['more', 'More', 'more']];
 const TAB_OF = { home: 'home', spend: 'spend', addexpense: 'spend', addincome: 'spend', income: 'spend', reports: 'spend', recurring: 'spend', events: 'spend', activity: 'home', conflicts: 'home',
   wealth: 'wealth', plan: 'wealth', fire: 'wealth', alerts: 'wealth', checks: 'wealth', lent: 'more', protection: 'more', documents: 'more', settings: 'more', more: 'more', changelock: 'more', backup: 'more', restore: 'more',
-  monthly: 'more', deposits: 'more', gratuity: 'more', caticons: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more', notes: 'more', privacy: 'more', report: 'more' };
+  monthly: 'more', deposits: 'more', gratuity: 'more', caticons: 'more', suggest: 'more', tracker: 'more', form: 'more', formedit: 'more', kite: 'more', intlpaste: 'more', cas: 'more', handover: 'more', year: 'more', move: 'more', help: 'more', grouping: 'more', signin: 'more', epf: 'more', notes: 'more', privacy: 'more', report: 'more', start: 'home', sections: 'more', family: 'more', guide: 'more', tour: 'more', feedback: 'more' };
 function syncPill() {
   const st = V.get('sync', 'state') || {}; const pending = V.all('outbox').length; const conflicts = V.all('conflict').length;
   let cls = 'pill', text;
@@ -190,7 +193,7 @@ function syncSheet() {
       h('span', {}, 'Connection'), h('span', {}, navigator.onLine ? 'Online' : 'Offline'),
       h('span', {}, 'Last synced'), h('span', {}, F.dateTime(st.lastSync)),
       h('span', {}, 'Waiting to sync'), h('span', {}, pending + ' change' + (pending === 1 ? '' : 's')),
-      h('span', {}, 'Tracker last saved in Excel'), h('span', {}, s && s.fileModified ? F.dateTime(s.fileModified) : '–')),
+      h('span', {}, 'Tracker file last saved'), h('span', {}, s && s.fileModified ? F.dateTime(s.fileModified) : '–')),
     st.lastError ? h('p', { class: 'warn-text', style: { marginTop: '10px' } }, 'Last problem: ' + st.lastError) : null,
     s && s.provisional ? h('p', { class: 'hint', style: { marginTop: '10px' } }, 'Totals are provisional until the next sync.') : null,
     h('div', { class: 'spacer' }),
@@ -215,14 +218,14 @@ function installCard() {
   const url = location.origin + location.pathname;
   const step = (n, txt) => h('li', {}, h('span', { class: 'stepn' }, String(n)), h('span', {}, txt));
   return h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Install on another phone or laptop')),
-    h('p', { class: 'hint' }, 'For setting up Madhu, or a new device. The app address is:'), h('p', { class: 'mono wrap-any' }, url),
+    h('p', { class: 'hint' }, 'For someone else in the family, or a new device. The app address is:'), h('p', { class: 'mono wrap-any' }, url),
     installEvt ? h('button', { class: 'btn primary', style: { margin: '8px 0' }, onclick: async () => { installEvt.prompt(); installEvt = null; } }, 'Install on this device') : null,
     h('div', { class: 'label-sm' }, 'Android phone (Chrome)'),
     h('ol', { class: 'steps-list' }, step(1, 'Open the address above in Chrome.'), step(2, 'Tap the ⋮ menu, then "Install app" (or "Add to Home screen").'), step(3, 'Open the app from the home screen and choose a 4-digit PIN.')),
     h('div', { class: 'label-sm' }, 'Laptop (Chrome or Edge)'),
     h('ol', { class: 'steps-list' }, step(1, 'Open the address above.'), step(2, 'Click the install icon at the right end of the address bar (or menu › Apps › Install).'), step(3, 'Open it and choose a PIN or passphrase.')),
     h('div', { class: 'label-sm' }, 'Then, on that device'),
-    h('ol', { class: 'steps-list' }, step(1, 'More › App › Sign in & tracker › Who uses this device: pick the person.'), step(2, 'Paste the tracker\'s OneDrive link and sign in with that person\'s own Microsoft account.'), step(3, 'For Madhu: share the tracker with her Microsoft account with "Can edit" first (OneDrive › Share).')));
+    h('ol', { class: 'steps-list' }, step(1, 'More › App › Sign in & tracker › Who uses this device: pick the person.'), step(2, 'Paste the tracker\'s OneDrive link and sign in with that person\'s own Microsoft account.'), step(3, 'For someone else in the family: share the tracker with their Microsoft account with "Can edit" first (OneDrive › Share).')));
 }
 function renderTop() { const p = document.getElementById('syncpill'); if (p && V.isUnlocked()) p.replaceWith(syncPill()); }
 function nav() {
@@ -273,7 +276,7 @@ function fitTables() {
   }
 }
 
-const NO_REOPEN = ['addexpense', 'addincome', 'formedit', 'kite', 'intlpaste', 'cas', 'move', 'changelock', 'backup', 'restore', 'conflicts', 'lock', 'forgot', 'setup'];
+const NO_REOPEN = ['start', 'tour', 'addexpense', 'addincome', 'formedit', 'kite', 'intlpaste', 'cas', 'move', 'changelock', 'backup', 'restore', 'conflicts', 'lock', 'forgot', 'setup'];
 // Phone back button: every screen change is a browser history step, so Back returns to the previous screen
 // (or closes an open sheet) instead of leaving the app.
 function go(view, opts = {}) { const prev = state.view; state.view = view; RP.noteView(view); if (view === 'spend' && !opts.keepMoney) state.moneyTab = 'spending'; if (['home', 'spend', 'wealth', 'more', 'tracker'].includes(view)) { state.formBack = null; if (view !== 'tracker') state.fromTopic = null; } window.scrollTo(0, 0); render();
@@ -317,11 +320,7 @@ function secretInput(type, onDone, opts = {}) {
 function centre(...kids) { $app.className = 'app'; $app.replaceChildren(h('main', { class: 'center' }, ...kids)); }
 
 // ---------- first-time setup, lock, forgot
-const TOUR = [
-  ['lock', 'Private by design', 'Everything on this phone is encrypted with your PIN. No ads, no trackers, no other servers. Amounts stay hidden until you tap the eye.'],
-  ['plus', 'Log a spend in seconds', 'Tap +, type the amount, pick a category, done. Each entry is tagged to whoever logs it, and Madhu and Aravind see each other\'s.'],
-  ['sync', 'Your tracker stays the master', 'The app reads and writes your Excel tracker in OneDrive. It works offline and syncs when you are back online.'],
-];
+const TOUR = V16.TOUR; // 0.16.0: neutral wording, also in Help › Guide › Play the tour
 async function viewSetup() {
   const seq = renderSeq;
   if (!(await meta.get('tourSeen')) && !state.tourDone && !CONFIG.skipTour) {
@@ -403,7 +402,7 @@ async function viewSettings() {
     h('h2', { class: 'sec-h' }, 'Everyday'),
     CONFIG.demo ? demoCard() : null,
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'This device')),
-      row('Who uses this device', 'Every change is tagged with this name.', sel([['', 'Not set'], ['Aravind', 'Aravind'], ['Madhu', 'Madhu']], s.deviceUser, v => saveSettings({ deviceUser: v }).then(saved), 'Who uses this device')),
+      row('Who uses this device', 'Every change is tagged with this name.', sel([['', 'Not set'], ...P.MEMBERS.map(n => [n, n])], s.deviceUser, v => saveSettings({ deviceUser: v }).then(saved), 'Who uses this device')),
       row('Device name', 'Shown in the tracker\'s Sync Log.', h('input', { class: 'field', id: 'devname', value: deviceName(), 'aria-label': 'Device name', onchange: e => saveSettings({ deviceName: e.target.value.trim() }).then(saved) }))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Lock')),
       row('Unlock with fingerprint', bioOk ? (bioOn ? (bioMode === 'device' ? 'On for this device (Windows Hello with a key kept in this browser). Your PIN still works.' : 'On for this device. Your PIN still works.') : 'Use the phone\'s fingerprint or face unlock instead of typing the PIN.') : 'Not available: this device has no fingerprint or face unlock set up for the browser.',
@@ -425,7 +424,8 @@ async function viewSettings() {
       row('Hide amounts when the app opens', 'Privacy mode: every ₹ figure shows as dots until you tap the eye button at the top. Hidden again after every lock.', sw(s.hideOnOpen !== false, 'Hide amounts when the app opens', async () => { await saveSettings({ hideOnOpen: s.hideOnOpen === false }); render(); })),
       row('Text size', null, sel([['system', 'Same as phone'], ['small', 'Small'], ['default', 'Standard'], ['large', 'Large']], size, async v => { await meta.set('textSize', v); applyLook(); }, 'Text size'))),
     h('section', { class: 'card' }, h('div', { class: 'card-h' }, h('h2', {}, 'Help')),
-      row('Tips', 'Every one-time tip in one place.', h('button', { class: 'btn', id: 'sethelp', onclick: () => go('help') }, 'Open')),
+      row('Guide and tips', 'How the app works, in short steps, and every one-time tip.', h('button', { class: 'btn', id: 'sethelp', onclick: () => go('help') }, 'Open')),
+      CONFIG.demo ? null : row('Send feedback', 'An idea or a question for the person who makes this app.', h('button', { class: 'btn', id: 'setfeedback', onclick: () => go('feedback') }, 'Open')),
       row('Privacy', 'Where your data is and what the app talks to, in plain words.', h('button', { class: 'btn', id: 'setpriv', onclick: () => go('privacy') }, 'Open')),
       row('Report a problem', 'Tell what went wrong. App details are added; no amounts or notes.', h('button', { class: 'btn', id: 'setreport', onclick: () => go('report') }, 'Open'))),
     h('h2', { class: 'sec-h', id: 'advanced' }, 'Advanced'),
@@ -448,7 +448,13 @@ async function viewSettings() {
 }
 function viewHelp() {
   const NAMES = { home: 'Home', spend: 'Money', addexpense: 'Add expense', reports: 'Reports', wealth: 'Wealth', tracker: 'More topics', monthly: 'Month-end update', recurring: 'Recurring', income: 'Income', lent: 'Money lent', events: 'Events', settings: 'Settings' };
-  return { title: 'Help', back: 'settings', body: [h('section', { class: 'card', id: 'helplist' }, h('div', { class: 'card-h' }, h('h2', {}, 'Tips')),
+  const link = (id, ic, t, sub, v) => h('li', { class: 'li tap', id, onclick: () => go(v) }, h('span', { class: 'lead' }, icon(ic)), h('div', { class: 'body' }, h('div', { class: 'ttl' }, t), h('div', { class: 'sub' }, sub)), icon('right', 16));
+  return { title: 'Help', back: 'settings', body: [h('section', { class: 'card', id: 'helpmain' }, h('ul', { class: 'list' },
+      link('helpguide', 'doc', 'Guide', 'How the app works, in six short parts', 'guide'),
+      link('helptour', 'info', 'Tour', 'The four welcome cards again', 'tour'),
+      CONFIG.demo ? null : link('helpfeedback', 'msg', 'Send feedback', 'An idea or a question for the person who makes this app', 'feedback'),
+      link('helpreport', 'alert', 'Report a problem', 'Something went wrong', 'report'))),
+    h('section', { class: 'card', id: 'helplist' }, h('div', { class: 'card-h' }, h('h2', {}, 'Tips')),
     ...Object.keys(TIPS).map(k => h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, NAMES[k] || k), h('div', { class: 'set-d' }, TIPS[k]))))),
     h('div', { class: 'btns' }, h('button', { class: 'btn', onclick: async () => { await saveSettings({ tipsSeen: [] }); toast('Tips will show again once on each screen'); } }, 'Show tips again'))] };
 }
@@ -457,12 +463,12 @@ function viewSignin() {
   const s = settings();
   const whoRow = h('section', { class: 'card' }, h('div', { class: 'set' }, h('div', { class: 'set-l' }, h('div', { class: 'set-t' }, 'Who uses this device'), h('div', { class: 'set-d' }, 'Every change is tagged with this name.')),
     h('div', { class: 'set-c' }, h('select', { class: 'field', id: 'signinwho', 'aria-label': 'Who uses this device', onchange: ev => saveSettings({ deviceUser: ev.target.value }).then(() => { toast('Saved'); render(); }) },
-      ...[['', 'Not set'], ['Aravind', 'Aravind'], ['Madhu', 'Madhu']].map(([v, l]) => h('option', { value: v, selected: v === (s.deviceUser || '') }, l))))));
+      ...[['', 'Not set'], ...P.MEMBERS.map(n => [n, n])].map(([v, l]) => h('option', { value: v, selected: v === (s.deviceUser || '') }, l))))));
   return { title: 'Sign in & tracker', back: 'tracker', body: [whoRow, CONFIG.demo ? demoCard() : syncCard()] };
 }
 function demoCard() {
   return h('section', { class: 'card', id: 'democard' }, h('div', { class: 'card-h' }, h('h2', {}, 'Demo copy')),
-    h('p', { class: 'hint' }, 'This copy only holds made-up figures so you can try every screen. It cannot sign in to Microsoft or touch your tracker, and it keeps its data apart from your real app on this phone. Switch "Who uses this device" below to see the app as Madhu.'),
+    h('p', { class: 'hint' }, 'This copy only holds made-up figures so you can try every screen. It cannot sign in to Microsoft or touch your tracker, and it keeps its data apart from your real app on this phone. Switch "Who uses this device" below to see the app as someone else in the family.'),
     h('div', { class: 'spacer' }),
     h('button', { class: 'btn', id: 'demoreset', onclick: async () => { for (const o of V.all('outbox')) await V.remove('outbox', o.opId); await loadDemo(true); toast('Demo data reset'); } }, 'Reset the demo data'));
 }
@@ -475,7 +481,7 @@ function syncCard() {
     row('Microsoft account', acct ? (acct.username || acct.name) : 'Not signed in',
       acct ? h('button', { class: 'btn', onclick: () => Auth.signOut().then(render) }, 'Sign out') : h('button', { class: 'btn primary', disabled: !Auth.configured() || null, onclick: () => Auth.signIn().then(render).catch(e => toast(e.message, 'bad')) }, 'Sign in')),
     row('Tracker file', file ? file.name : 'Not connected', file ? h('button', { class: 'btn', onclick: async () => { await V.remove('sync', 'file'); render(); } }, 'Disconnect') : null),
-    acct && !file ? h('div', { class: 'stack' }, h('p', { class: 'hint' }, 'In OneDrive, open the tracker\'s Share menu, choose "Can edit" and copy the link. Madhu uses the link Aravind sends her.'), link,
+    acct && !file ? h('div', { class: 'stack' }, h('p', { class: 'hint' }, 'In OneDrive, open the tracker\'s Share menu, choose "Can edit" and copy the link. Others in the family use the link you send them.'), link,
       h('button', { class: 'btn primary', onclick: async () => {
         try { const f = await GraphFile.fromShareLink({ base: CONFIG.graphBase, getToken: () => Auth.getToken(true), link: link.value }); await V.put('sync', 'file', f); toast('Connected to ' + f.name); await doSync(true); }
         catch (e) { toast(e.message, 'bad'); }
@@ -560,7 +566,7 @@ async function loadSample() {
   try {
     const r = await fetch('./sample-snapshot.json'); const j = await r.json();
     await V.put('snapshot', 'latest', { ...j.snapshot, sample: true }); await V.put('entries', 'all', j.entries);
-    if (!who()) await saveSettings({ deviceUser: 'Aravind' });
+    applyPeople(); if (!who()) await saveSettings({ deviceUser: P.p1() });
     toast('Sample data loaded'); go('home');
   } catch (e) { toast('Could not load sample data', 'bad'); }
 }
@@ -572,7 +578,7 @@ async function loadDemo(force) {
     const j = await (await fetch('./sample-snapshot.json')).json();
     await V.put('snapshot', 'latest', { ...j.snapshot, sample: true, demo: true }); await V.put('entries', 'all', j.entries);
     for (const x of (j.nwhist || [])) await V.put('nwhist', x.ym, x);
-    if (!who()) await saveSettings({ deviceUser: 'Aravind' });
+    applyPeople(); if (!who()) await saveSettings({ deviceUser: P.p1() });
     await V.put('sync', 'state', { lastSync: new Date().toISOString(), lastError: null });
   } catch (e) { toast('Could not load the demo data', 'bad'); } finally { demoLoading = false; }
   render();
@@ -581,6 +587,19 @@ async function clearSample() {
   const s = snap();
   if (s && s.sample) { await V.remove('snapshot', 'latest'); await V.remove('entries', 'all'); }
   toast('Sample data removed'); render();
+}
+
+// ---------- the family's names and sections (tracker v32), read from the snapshot; names typed at setup until the first sync
+function applyPeople() {
+  const s = snap(); const pp = s && s.people; const st = settings();
+  P.setNames(pp && pp.set ? pp.names : (st.family && st.family.length ? st.family : pp ? pp.names : null));
+  setFormNames(pp ? pp.l1 : P.p1(), pp ? pp.l2 : (P.p2() || P.SLOT2));
+  P.setSections(Object.assign({}, pp ? pp.sections : {}, s ? V16.sectionsNow() : {}));
+}
+// first-time setup: no tabs, only the way forward
+function bare(view) {
+  $app.className = 'app shell';
+  $app.replaceChildren(h('header', { class: 'topbar', id: 'topbar' }, h('h1', {}, view.title)), h('main', { class: 'page', id: 'main' }, ...view.body));
 }
 
 // ---------- router
@@ -598,6 +617,9 @@ async function renderRun() {
   if (CONFIG.demo && !snap() && !demoLoading) { loadDemo(); }
   if (state.hidden === undefined) state.hidden = settings().hideOnOpen !== false;
   F.setHidden(state.hidden); setCatIcons(settings().catIcons);
+  applyPeople();
+  if (V16.needsStart() && !['start', 'privacy', 'forgot'].includes(state.view)) state.view = 'start';
+  if (!P.viewOn(state.view)) state.view = 'more'; // a section switched off for the family
   switch (state.view) {
     case 'settings': return viewSettings();
     case 'reports': return shell(R.viewReports());
@@ -643,11 +665,17 @@ async function renderRun() {
     case 'notes': return shell(V15.viewNotes());
     case 'privacy': return shell(V15.viewPrivacy());
     case 'report': return shell(RP.viewReport(APP_VERSION));
+    case 'start': return bare(V16.viewStart());
+    case 'sections': return shell(V16.viewSections());
+    case 'family': return shell(V16.viewFamily());
+    case 'guide': return shell(V16.viewGuide());
+    case 'tour': return centre(V16.viewTour());
+    case 'feedback': return shell(V16.viewFeedback(APP_VERSION));
     default: state.view = 'home'; return shell(M.viewHome());
   }
 }
 
-Object.assign(ctx, { V, F, settings, saveSettings, who, snap, go, render, queue, entriesView, baseOf, doSync, scheduleSync, lockNow, deviceName, connectSuggest });
+Object.assign(ctx, { V, F, settings, saveSettings, who, snap, go, render, queue, entriesView, baseOf, doSync, scheduleSync, lockNow, deviceName, connectSuggest, loadSample });
 
 (async () => {
   await applyLook();
