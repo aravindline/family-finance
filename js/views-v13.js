@@ -1,5 +1,6 @@
 // 0.13.0 (tracker v29, Aravind's feedback on 0.12.0): Home tiles, FD / RD register, gratuity, editable targets.
 // Like every screen, these only queue edits to input cells or rows of the app's own tables.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, toast, haptic, seg, tag, card, empty, sheet, bar, parseAmount, trendChart, donut, SERIES } from './ui.js';
@@ -52,7 +53,7 @@ export function viewDeposits() {
 }
 export function depositForm(prefill = {}) {
   const s = ctx.snap() || {};
-  const f = { whose: prefill.whose || ctx.who() || 'Aravind', kind: prefill.kind || 'FD' };
+  const f = { whose: prefill.whose || (PEOPLE.includes(ctx.who()) ? ctx.who() : P.p1()), kind: prefill.kind || 'FD' };
   const inp = (id, label, attrs = {}) => h('input', { class: 'field', id, 'aria-label': label, ...attrs });
   const name = inp('depname', 'Name', { maxlength: 40, placeholder: 'e.g. SBI FD ••1234' }), bank = inp('depbank', 'Bank', { maxlength: 40 });
   const amt = inp('depamt', 'Amount', { inputmode: 'decimal', placeholder: '0' }), rate = inp('deprate', 'Interest rate', { inputmode: 'decimal', placeholder: 'e.g. 7.1' });
@@ -60,7 +61,7 @@ export function depositForm(prefill = {}) {
   const accts = ((s.inputs && s.inputs.otherAssets) || []).filter(r => /savings/i.test(String(r.type.v || r.name.v || ''))).map(r => String(r.name.v || '')).filter(Boolean);
   const pays = h('select', { class: 'field', id: 'deppays', 'aria-label': 'Pays into' }, h('option', { value: '' }, '–'), ...accts.map(a => h('option', { value: a }, a)));
   const amtLbl = h('div', { class: 'label-sm' }); const drawAmt = () => { amtLbl.textContent = f.kind === 'RD' ? 'Monthly instalment (₹)' : 'Amount (₹)'; };
-  const top = h('div'); const drawTop = () => top.replaceChildren(seg(PEOPLE, f.whose, v => { f.whose = v; drawTop(); }, 'Whose'), h('div', { class: 'spacer' }), seg([['FD', 'FD'], ['RD', 'RD'], ['Corporate FD', 'Corporate FD']], f.kind, v => { f.kind = v; drawTop(); drawAmt(); }, 'Kind'));
+  const top = h('div'); const drawTop = () => top.replaceChildren(PEOPLE.length < 2 ? '' : seg(PEOPLE, f.whose, v => { f.whose = v; drawTop(); }, 'Whose'), h('div', { class: 'spacer' }), seg([['FD', 'FD'], ['RD', 'RD'], ['Corporate FD', 'Corporate FD']], f.kind, v => { f.kind = v; drawTop(); drawAmt(); }, 'Kind'));
   drawTop(); drawAmt();
   const sh = sheet('Add FD / RD', h('div', { class: 'stack', id: 'depform' }, top,
     h('div', { class: 'label-sm' }, 'Name'), name, h('div', { class: 'label-sm' }, 'Bank'), bank, amtLbl, amt, h('div', { class: 'label-sm' }, 'Interest rate (% a year)'), rate,
@@ -116,7 +117,7 @@ export function gratuityFor(s, p) {
   const q = new Date(g.joined + 'T00:00:00Z'); q.setUTCFullYear(q.getUTCFullYear() + need); const qualifies = q.toISOString().slice(0, 10);
   const monthsLeft = Math.max(0, (q.getUTCFullYear() - new Date().getFullYear()) * 12 + q.getUTCMonth() - new Date().getMonth());
   const nowYears = yearsCounted(g.joined, today);
-  const retireYear = p === 'Aravind' ? (s.plan && s.plan.dobYear && s.plan.retireA ? s.plan.dobYear + s.plan.retireA : null) : (s.plan && s.plan.madhuBorn && s.plan.retireM ? s.plan.madhuBorn + s.plan.retireM : null);
+  const retireYear = !P.isP2(p) ? (s.plan && s.plan.dobYear && s.plan.retireA ? s.plan.dobYear + s.plan.retireA : null) : (s.plan && s.plan.madhuBorn && s.plan.retireM ? s.plan.madhuBorn + s.plan.retireM : null);
   const retireDate = retireYear ? retireYear + '-12-31' : null; const yrsRet = retireDate ? yearsCounted(g.joined, retireDate) : null;
   const wagesRet = retireYear ? Math.round(wages * Math.pow(1 + growth, Math.max(0, retireYear - new Date().getFullYear()))) : null;
   const atRet = yrsRet !== null && yrsRet >= need ? Math.round(15 / 26 * wagesRet * yrsRet) : (yrsRet !== null ? 0 : null);
@@ -201,6 +202,7 @@ export function homeTiles(s, p) {
     const delta = typeof nw === 'number' && typeof before === 'number' ? nw - before : null;
     t4 = tile('tile-nw', 'Net worth', delta !== null ? 'vs ' + F.MONTHS[Number(addMonths(lm, -1).slice(5)) - 1] : c ? mon + ' close' : 'Now', typeof nw === 'number' ? F.inrShort(nw) : '–', null,
       h('div', {}, delta !== null ? h('div', { class: 'num strong ' + (delta >= 0 ? 'gain' : 'loss') }, F.signed(delta, F.inrShort)) : null, moved ? h('span', { class: 'hint' }, moved) : null));
+    if (!P.on('fire')) t3 = null; // S4: FIRE switched off for the family
   } else {
     t3 = spendWatch(lm, p);
     t4 = mixTile(s, p);

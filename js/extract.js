@@ -2,7 +2,8 @@
 // Blocks are found by their labels, not fixed rows, so small layout changes in the tracker don't break the app.
 // Anything missing simply comes back empty; the screens then say "not set up yet".
 import { serialToISO } from './xlsx.js';
-import { extractForms } from './forms.js';
+import { extractForms, setFormNames } from './forms.js';
+import { BAKED, SLOT2, SECTIONS, sectionLabel } from './people.js';
 
 const C = l => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
 const num = v => (typeof v === 'number' && isFinite(v) ? v : null);
@@ -30,9 +31,22 @@ function typeRules(wb) {
   return { typeOf, cls };
 }
 
+export function readPeople(wb) {
+  const st = sheetGrid(wb, 'Settings'); const names = []; const sections = {}; let v32 = false;
+  if (st) for (let r = 100; r <= 160; r++) { const l = str(at(st, r, 2)).trim(); let m;
+    if ((m = /^Family member (\d) name$/.exec(l))) { v32 = true; const n = str(at(st, r, 3)).trim(); if (n) names[Number(m[1]) - 1] = n; }
+    else if (/^Show in the app: /.test(l)) { const sec = SECTIONS.find(x => sectionLabel(x.id) === l); if (sec) sections[sec.id] = !/^no$/i.test(str(at(st, r, 3)).trim()); } }
+  const list = names.filter(Boolean);
+  const fam = list.length ? list : BAKED.slice();
+  return { names: fam, l1: fam[0], l2: names[1] || (list.length ? SLOT2 : BAKED[1]), v32, sections, set: list.length > 0 };
+}
 export function extractSnapshot(wb) {
   const out = { v: 2 };
   out.fileModified = wb.modified();
+  // ---- v32: the family's names (Settings › Family) and the sections shown in the app (Settings › Sections).
+  // A tracker before v32 is the first family's own (Aravind, Madhu). The file's labels use L1 / L2 (a family of one keeps
+  // "Person 2" in its labels, hidden in the app).
+  const people = readPeople(wb); out.people = people; const [L1, L2] = [people.l1, people.l2];
 
   // ---- lists for expense entry (typed header text, never depends on recalculation)
   const ex = sheetGrid(wb, 'Expenses'), ec = sheetGrid(wb, 'Expense Categories');
@@ -103,8 +117,8 @@ export function extractSnapshot(wb) {
   out.monthly = tbl(wb, 'tblMonthly').map(r => ({
     month: iso(r['Month']), fy: str(r['FY']), income: num(r['Total income (₹)']), expenses: num(r['Expenses (₹)']),
     saved: num(r['Total saved & invested (₹)']), target: num(r['Target (₹)']), vsTarget: num(r['vs target, excl. EPF (₹)']), savingsRate: num(r['Savings rate']),
-    nwA: num(r['Aravind net worth (₹)']), nwM: num(r['Madhu net worth (₹)']), nwF: num(r['Family net worth (₹)']),
-    takeA: num(r['Aravind take-home (₹)']), takeM: num(r['Madhu take-home (₹)']),
+    nwA: num(r[L1 + ' net worth (₹)']), nwM: num(r[L2 + ' net worth (₹)']), nwF: num(r['Family net worth (₹)']),
+    takeA: num(r[L1 + ' take-home (₹)']), takeM: num(r[L2 + ' take-home (₹)']),
   })).filter(r => r.month && (r.income || r.saved || r.nwF || r.nwA || r.nwM));
 
   // ---- monthly expenses by category (from the tracker)
@@ -178,8 +192,8 @@ export function extractSnapshot(wb) {
     const bk = name => out.brokers.find(b => b.name === name) || {};
     out.intl = tbl(wb, 'tblIntl').filter(r => r['Stock symbol']).map(r => { const b = bk(str(at(ig, r._row, C('S')))); return { type: 'US stocks', platform: str(at(ig, r._row, C('S'))) || out.intlPlatform, broker: str(at(ig, r._row, C('S'))) || out.intlPlatform, currency: str(at(ig, r._row, C('U'))) || b.currency || 'USD', rateFix: b.rate > 0 ? b.rate : null, row: r._row,
       owner: str(r['Owner (blank = default)']) || b.owner || out.intlOwner, name: str(r['Stock symbol']), qty: num(r['Quantity']), price: num(r['Price used ($)']), invested: num(r['Invested (₹)']), current: num(r['Current (₹)']), pnl: num(r['P&L (₹)']), ret: num(r['Return']) }; }); }
-  out.otherAssets = tbl(wb, 'tblOther').filter(r => r['Item'] && num(r['Family (₹)'])).map(r => ({ name: str(r['Item']), where: str(r['Bank / institution']), type: str(r['Type']), aravind: num(r['Aravind (₹)']), madhu: num(r['Madhu (₹)']), family: num(r['Family (₹)']), cls: str(r['Class (auto)']) }));
-  out.loans = tbl(wb, 'tblLoans').filter(r => r['Loan'] && num(r['Total (₹)'])).map(r => ({ name: str(r['Loan']), lender: str(r['Lender']), aravind: num(r['Aravind outstanding (₹)']), madhu: num(r['Madhu outstanding (₹)']), total: num(r['Total (₹)']), rate: num(r['Interest %']), emi: num(r['EMI (₹)']), closes: iso(r['Closes (month)']), nextEmi: iso(r['Next EMI month']), emisLeft: num(r['EMIs left (auto)']), lastEmi: iso(r['Last EMI (auto)']), interestLeft: num(r['Interest still to pay (₹, auto)']) }));
+  out.otherAssets = tbl(wb, 'tblOther').filter(r => r['Item'] && num(r['Family (₹)'])).map(r => ({ name: str(r['Item']), where: str(r['Bank / institution']), type: str(r['Type']), aravind: num(r[L1 + ' (₹)']), madhu: num(r[L2 + ' (₹)']), family: num(r['Family (₹)']), cls: str(r['Class (auto)']) }));
+  out.loans = tbl(wb, 'tblLoans').filter(r => r['Loan'] && num(r['Total (₹)'])).map(r => ({ name: str(r['Loan']), lender: str(r['Lender']), aravind: num(r[L1 + ' outstanding (₹)']), madhu: num(r[L2 + ' outstanding (₹)']), total: num(r['Total (₹)']), rate: num(r['Interest %']), emi: num(r['EMI (₹)']), closes: iso(r['Closes (month)']), nextEmi: iso(r['Next EMI month']), emisLeft: num(r['EMIs left (auto)']), lastEmi: iso(r['Last EMI (auto)']), interestLeft: num(r['Interest still to pay (₹, auto)']) }));
 
   // ---- insurance, documents, nominees, contacts (no full numbers are kept in the tracker)
   out.insurance = tbl(wb, 'tblInsurance').filter(r => r['Policy']).map(r => ({ name: str(r['Policy']), type: str(r['Type']), covers: str(r['Covers']), insurer: str(r['Insurer']), sum: num(r['Sum assured (₹)']), premium: num(r['Annual premium (₹)']), renewal: iso(r['Renewal date']), nominee: str(r['Nominee']), days: num(r['Days to renewal (auto)']), status: str(r['Renewal status (auto)']), notes: str(r['Notes']) }));
@@ -233,7 +247,7 @@ export function extractSnapshot(wb) {
     if (ig) { for (let r = 6; r <= 30; r++) { const c = str(at(ig, r, C('M'))); if (!c) break; out.incomeCats.push({ name: c, goes: str(at(ig, r, C('N'))), subs: ['O', 'P', 'Q', 'R'].map(x => str(at(ig, r, C(x)))).filter(Boolean) }); }
       for (let r = 6; r <= 45; r++) { const a = str(at(ig, r, C('T'))); if (a) out.incomeAccounts.push(a); } } }
   { const yrs = str(at(d, 7, C('B'))); const m = yrs.match(/^([\d.]+) years/); out.nwYears = m ? Number(m[1]) : null; }
-  { const st = sheetGrid(wb, 'Settings'); const live = findRow(st, 2, s => /living, per month/i.test(s), 1, 120); const trips = findRow(st, 2, s => /trips, per month/i.test(s), 1, 120);
+  { const st = sheetGrid(wb, 'Settings'); const live = findRow(st, 2, s => /living, per month/i.test(s), 1, 160); const trips = findRow(st, 2, s => /trips, per month/i.test(s), 1, 160);
     out.retireMonthly = (live ? num(at(st, live, 3)) || 0 : 0) + (trips ? num(at(st, trips, 3)) || 0 : 0) || null; }
 
   // ---- v29: FD / RD register, Month Close, gratuity, Coast FIRE, Home targets, plan ages straight from Settings
@@ -250,7 +264,7 @@ export function extractSnapshot(wb) {
   { const gg = sheetGrid(wb, 'Gratuity'); out.gratuity = null;
     if (gg) { const lab = {}; for (let r = 6; r <= 30; r++) { const l = str(at(gg, r, 1)); if (l) lab[l] = r; }
       const pick = (c, re) => { const k = Object.keys(lab).find(x => re.test(x)); return k ? at(gg, lab[k], C(c)) : null; };
-      out.gratuity = {}; for (const [c, p] of [['C', 'Aravind'], ['D', 'Madhu']]) out.gratuity[p] = { company: str(pick(c, /^Company/)), joined: iso(pick(c, /^Joining date/)), basic: num(pick(c, /^Monthly basic/)), total: num(pick(c, /^Monthly total pay/)), fixedTerm: str(pick(c, /^Fixed-term/)) === 'Yes' }; } }
+      out.gratuity = {}; for (const [c, p] of [['C', L1], ['D', L2]]) out.gratuity[p] = { company: str(pick(c, /^Company/)), joined: iso(pick(c, /^Joining date/)), basic: num(pick(c, /^Monthly basic/)), total: num(pick(c, /^Monthly total pay/)), fixedTerm: str(pick(c, /^Fixed-term/)) === 'Yes' }; } }
   { const fp = sheetGrid(wb, 'FIRE Plan'); const cr = findRow(fp, C('I'), starts('Coast FIRE year'), 1, 60); out.coast = cr ? { year: at(fp, cr, C('J')), age: at(fp, cr + 1, C('J')) } : null;
     // v30: the FIRE details screen (Wealth › Goals & FIRE › FIRE) reads the plan by its labels
     out.firePlan = null;
@@ -259,26 +273,26 @@ export function extractSnapshot(wb) {
       const hr = findRow(fp, 1, s => s.trim() === 'Year', 20, 80); const model = [];
       if (hr) { let cc = null; for (let c = 1; c <= 30; c++) if (/^closing corpus/i.test(str(at(fp, hr, c)))) cc = c;
         for (let r = hr + 1; r <= hr + 80 && cc; r++) { const y = num(at(fp, r, 1)); if (y === null) break; model.push({ year: y, age: num(at(fp, r, 2)), phase: str(at(fp, r, 4)), closing: num(at(fp, r, cc)) }); } }
-      out.firePlan = { start: num(v('A', 'Plan starts', 'B')), retireAge: num(v('A', 'Aravind stops working at age', 'B')), target: num(v('A', 'Monthly target', 'B')), corpusToday: num(v('A', 'Starting corpus', 'B')),
+      out.firePlan = { start: num(v('A', 'Plan starts', 'B')), retireAge: num(v('A', L1 + ' stops working at age', 'B')), target: num(v('A', 'Monthly target', 'B')), corpusToday: num(v('A', 'Starting corpus', 'B')),
         living: num(v('E', 'After retirement: living', 'F')), trips: num(v('E', 'After retirement: trips', 'F')), inflation: num(v('I', 'General inflation', 'J')),
         retBefore: num(v('I', 'Blended return before retirement', 'J')), retAfter: num(v('I', 'Return after retirement', 'J')),
         needed: num(v('I', 'Needed at retirement, in today', 'J')), projected: num(v('I', 'Projected at retirement, in today', 'J')), monthlyNeeded: num(v('I', 'Monthly investing needed', 'J')),
         lasts: v('I', 'Money lasts until', 'J'), actual: num(v('I', 'Actual monthly investing', 'J')), goldOut: num(v('A', 'Physical gold left out', 'B')), model }; } }
-  { const st = sheetGrid(wb, 'Settings'); const byLabel = {}; if (st) for (let r = 7; r <= 120; r++) { const l = str(at(st, r, 2)); if (l) byLabel[l] = { ref: 'C' + r, v: at(st, r, 3) }; }
+  { const st = sheetGrid(wb, 'Settings'); const byLabel = {}; if (st) for (let r = 7; r <= 160; r++) { const l = str(at(st, r, 2)); if (l) byLabel[l] = { ref: 'C' + r, v: at(st, r, 3) }; }
     const g = l => byLabel[l] || null; out.settingCells = byLabel;
-    const dob = num(g("Aravind's date of birth") && g("Aravind's date of birth").v);
-    out.plan = { dobYear: dob ? Number(serialToISO(dob).slice(0, 4)) : null, dob: dob ? serialToISO(dob) : null, retireA: num((g('Aravind stops working at age') || {}).v), retireM: num((g('Madhu stops working at age') || {}).v),
-      madhuBorn: num((g("Madhu's birth year (Dec)") || {}).v), until: num((g("Plan until Aravind's age") || {}).v), start: num((g('Plan starts (year)') || {}).v) };
+    const dob = num(g(L1 + "'s date of birth") && g(L1 + "'s date of birth").v);
+    out.plan = { dobYear: dob ? Number(serialToISO(dob).slice(0, 4)) : null, dob: dob ? serialToISO(dob) : null, retireA: num((g(L1 + ' stops working at age') || {}).v), retireM: num((g(L2 + ' stops working at age') || {}).v),
+      madhuBorn: num((g(L2 + "'s birth year (Dec)") || g(L2 + "'s birth year") || {}).v), until: num((g("Plan until " + L1 + "'s age") || {}).v), start: num((g('Plan starts (year)') || {}).v) };
     // the FIRE year follows Settings straight away (Excel's own figures update when it next recalculates)
     if (out.plan.dobYear && out.plan.retireA) { out.fire.fireAge = out.plan.retireA; out.fire.fireYear = out.plan.dobYear + out.plan.retireA; out.fire.fireDate = (out.fire.fireYear) + out.plan.dob.slice(4, 10);
       out.fire.yearsToGo = Math.max(0, (Date.parse(out.fire.fireDate) - Date.now()) / (365.25 * 86400000)); }
     const T = (l, d = null) => { const x = g(l); return x ? { ref: x.ref, v: num(x.v), label: l } : (d ? { ref: null, v: d, label: l } : null); };
-    out.targets = { invest: { Family: T('Target per month (₹)'), Aravind: T('Invest target per month: Aravind (₹)'), Madhu: T('Invest target per month: Madhu (₹)') },
-      savingsRate: { Family: T('Savings-rate target: Family'), Aravind: T('Savings-rate target: Aravind'), Madhu: T('Savings-rate target: Madhu') },
-      mix: Object.fromEntries(['Aravind', 'Madhu'].map(p => [p, { Growth: T('Mix target ' + p + ': Growth'), Safety: T('Mix target ' + p + ': Safety'), Gold: T('Mix target ' + p + ': Gold') }])) }; }
+    out.targets = { invest: { Family: T('Target per month (₹)'), [L1]: T('Invest target per month: ' + L1 + ' (₹)'), [L2]: T('Invest target per month: ' + L2 + ' (₹)') },
+      savingsRate: { Family: T('Savings-rate target: Family'), [L1]: T('Savings-rate target: ' + L1), [L2]: T('Savings-rate target: ' + L2) },
+      mix: Object.fromEntries([L1, L2].map(p => [p, { Growth: T('Mix target ' + p + ': Growth'), Safety: T('Mix target ' + p + ': Safety'), Gold: T('Mix target ' + p + ': Gold') }])) }; }
 
   // ---- drop 1: every input block the app can fill (see forms.js)
-  try { out.forms = extractForms(wb); } catch (e) { out.forms = {}; }
+  try { setFormNames(L1, L2); out.forms = extractForms(wb); } catch (e) { out.forms = {}; }
 
   // ---- headline numbers kept in the old shape too
   const nw = out.totals.netWorth || {}, ta = out.totals.assets || {}, lo = out.totals.loans || {};

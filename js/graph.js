@@ -34,6 +34,18 @@ export class GraphFile {
     if (!/\.xlsx$/i.test(it.name || '')) throw new Error('That link is not an Excel (.xlsx) file.');
     return { driveId: it.parentReference.driveId, itemId: it.id, name: it.name };
   }
+  // "Create my tracker" (0.16.0): a new file in the signed-in person's own OneDrive (top folder). If the name is taken,
+  // OneDrive adds a number, so an existing file is never replaced.
+  static async create({ base = 'https://graph.microsoft.com/v1.0', getToken, name, bytes }) {
+    const token = await getToken();
+    const r = await netFetch(base + '/me/drive/root:/' + encodeURIComponent(name) + ':/content?@microsoft.graph.conflictBehavior=rename', { method: 'PUT', body: bytes,
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } }, 'OneDrive');
+    if (r.status === 401) throw new Error('Microsoft sign-in has expired. Sign in again.');
+    if (r.status === 507) throw new Error('Your OneDrive is full. Free some space and try again.');
+    if (!r.ok) throw new Error('OneDrive error ' + r.status + ' while creating the tracker.');
+    const it = await r.json();
+    return { driveId: it.parentReference && it.parentReference.driveId, itemId: it.id, name: it.name };
+  }
   async meta() { const r = await this._fetch('/drives/' + this.driveId + '/items/' + this.itemId + '?$select=id,name,eTag,lastModifiedDateTime,lastModifiedBy,size'); return r.json(); }
   // Personal OneDrive serves file bytes from a separate host (my.microsoftpersonalcontent.com) through a
   // short-lived, pre-signed download link. Fetch that link directly, without the sign-in token.

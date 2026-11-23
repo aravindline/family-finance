@@ -1,7 +1,8 @@
 // Wealth worked out in the app from what was typed and pasted (tracker v29), so Home and the Month-end update are right
 // straight after a sync, before Excel recalculates. Per person (Aravind, Madhu): value by asset class, buy cost by bucket,
 // bank + cash + FD / RD, and the Growth / Safety / Gold mix. Parents' accounts count as Aravind's (set on the Kite accounts).
-export const PEOPLE = ['Aravind', 'Madhu'];
+import * as P from './people.js';
+export const PEOPLE = P.HOLDERS; // v32: the money holders' names from the tracker
 export const CLASSES = ['Equity', 'International equity', 'Gold & silver', 'Debt', 'REITs & InvITs', 'Retirement', 'Cash & deposits', 'Other'];
 export const BUCKETS = [['ind', 'Indian equity'], ['eqf', 'Equity funds'], ['debt', 'Debt & arbitrage funds'], ['bonds', 'Bonds'], ['gold', 'Gold'], ['intl', 'International']];
 // Mix (Aravind, 11 Nov 2026): Growth = equity, international equity, REITs; Safety = debt, cash & deposits, EPF / PPF / NPS;
@@ -83,7 +84,7 @@ export function items(s, opts = {}) {
   for (const r of oa) {
     const name = String(r.name.v || ''), type = String(r.type.v || ''); if (s.v29 && fromRegister.test(name)) continue; // the register rows above stand for these
     const c = cls[type] || (/savings|current account|cash at home|bank/i.test(type || name) ? 'Cash & deposits' : 'Other'); // a row with no Type is placed by its name
-    for (const [p, cell] of [['Aravind', r.aravind], ['Madhu', r.madhu]]) {
+    for (const [p, cell] of [[P.p1(), r.aravind], [P.p2(), r.madhu]]) { if (!p) continue;
       const v = /^EPF/i.test(type) && opts.epf ? opts.epf(p) : n(cell.v); if (v) add('assets', p, name, type, c, v, 0);
     }
   }
@@ -91,11 +92,11 @@ export function items(s, opts = {}) {
 }
 export function byClass(list, person) { const o = Object.fromEntries(CLASSES.map(c => [c, 0])); for (const x of list) if (!person || person === 'Family' || x.owner === person) o[x.cls] = (o[x.cls] || 0) + x.value; return o; }
 export function costs(list, person) { const o = Object.fromEntries(BUCKETS.map(([k]) => [k, 0])); for (const x of list) { if (person && person !== 'Family' && x.owner !== person) continue; const b = bucketOf(x.type, x.cls); if (b) o[b] += x.cost || 0; } for (const k of Object.keys(o)) o[k] = Math.round(o[k]); return o; }
-export function loansOf(s, person) { return (s.loans || []).reduce((t, l) => t + (person === 'Aravind' ? n(l.aravind) : person === 'Madhu' ? n(l.madhu) : n(l.total)), 0); }
+export function loansOf(s, person) { return (s.loans || []).reduce((t, l) => t + (person === P.p1() ? n(l.aravind) : P.isP2(person) ? n(l.madhu) : n(l.total)), 0); }
 // bank balances + cash at home (typed on Other Assets), and FD / RD from the register
 export function bankCash(s, person, override = {}) {
   let t = 0; const rows = (s.inputs && s.inputs.otherAssets) || [];
-  for (const r of rows) { const ty = String(r.type.v || r.name.v || ''); if (!/savings|current account|cash at home/i.test(ty)) continue; const c = person === 'Madhu' ? r.madhu : r.aravind; if (c.f) continue; t += n(override[c.ref] !== undefined ? override[c.ref] : c.v); }
+  for (const r of rows) { const ty = String(r.type.v || r.name.v || ''); if (!/savings|current account|cash at home/i.test(ty)) continue; const c = P.isP2(person) ? r.madhu : r.aravind; if (c.f) continue; t += n(override[c.ref] !== undefined ? override[c.ref] : c.v); }
   return Math.round(t);
 }
 export function fdrd(s, person) { return Math.round((s.deposits || []).filter(d => d.whose === person).reduce((t, d) => t + depositValue(d), 0)); }

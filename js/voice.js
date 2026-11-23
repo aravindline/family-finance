@@ -2,6 +2,7 @@
 // the person checks the form and presses Save. Uses Chrome's own speech recognition, which sends the spoken words
 // to Google to turn them into text, and only after the mic is tapped (approved by Aravind on 9 Nov 2026).
 // The parsing below is plain code on the phone: no other service is called.
+import * as P from './people.js';
 
 const Rec = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
 export const voiceSupported = () => !!Rec;
@@ -176,8 +177,10 @@ function best(T, names, opts = {}) {
 const take = (T, m, keepAlias) => { if (m) for (const i of m.ix) if (!(keepAlias && m.viaAlias && !T[i].num)) T[i].used = true; else T[i].hint = true; };
 
 function findPerson(T) {
-  const MA = ['madhu', 'madu', 'mathu', 'madhoo', 'madhuri'], AR = ['aravind', 'arvind', 'aravindh', 'arvindh', 'arwind', 'aravin'];
-  for (let i = 0; i < T.length; i++) { if (T[i].used) continue; const p = MA.includes(T[i].w) ? 'Madhu' : AR.includes(T[i].w) ? 'Aravind' : '';
+  // v32: the family's own names; the first family's names also match how speech-to-text tends to spell them
+  const SAY = { madhu: ['madu', 'mathu', 'madhoo', 'madhuri'], aravind: ['arvind', 'aravindh', 'arvindh', 'arwind', 'aravin'] };
+  const byWord = new Map(); for (const n of P.MEMBERS) { const k = n.toLowerCase(); for (const w of [k, k.split(' ')[0], ...(SAY[k] || [])]) if (!byWord.has(w)) byWord.set(w, n); }
+  for (let i = 0; i < T.length; i++) { if (T[i].used) continue; const p = byWord.get(T[i].w) || '';
     if (p) { T[i].used = true; if (T[i - 1] && T[i - 1].w === 'for') T[i - 1].used = true; return p; } }
   return '';
 }

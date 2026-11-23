@@ -3,6 +3,8 @@
 // notes or the tracker link. The person sees exactly what is shared before sending it.
 import { ctx, state } from './ctx.js';
 import { h, toast, card } from './ui.js';
+import * as F from './fmt.js';
+import { fireMissing } from './views-v14.js';
 
 // a few recent screens and error messages, kept in memory only (gone when the app closes)
 const trail = [], errors = [];
@@ -15,23 +17,39 @@ window.addEventListener('unhandledrejection', e => noteError(e.reason && e.reaso
 // the address is kept scrambled in the code and shown only when the person sends a report
 const ADDR = [109, 111, 99, 46, 107, 111, 111, 108, 116, 117, 111, 64, 110, 105, 102, 109, 97, 102, 100, 110, 105, 118, 97, 114, 97];
 const addr = () => String.fromCharCode(...ADDR.slice().reverse());
+export const feedbackAddress = addr; // 0.16.0: also used by Send feedback (Help)
+
+// screen names as the person knows them (the trail keeps the app's own route names)
+const NAMES = { home: 'Home', spend: 'Money', income: 'Income', wealth: 'Wealth', more: 'More', settings: 'Settings', report: 'Report a problem',
+  addexpense: 'Add expense', addincome: 'Add income', monthly: 'Month-end update', fire: 'FIRE details', plan: 'FIRE & goals', form: 'A list in More',
+  formedit: 'Editing a setting or item', tracker: 'A topic in More', kite: 'Kite holdings', intlpaste: 'INDmoney prices', cas: 'CAS statement',
+  signin: 'Sign in & tracker', reports: 'Reports', recurring: 'Recurring', activity: 'Family activity', events: 'Events', lent: 'Money lent',
+  checks: 'Checks', protection: 'Protection', documents: 'Documents', year: 'Year in review', move: 'Tracker version', privacy: 'Privacy',
+  conflicts: 'Needs your choice', backup: 'Backup', restore: 'Restore', changelock: 'Change lock', handover: 'Handover', suggest: 'Suggestions', deposits: 'FD / RD', epf: 'EPF', gratuity: 'Gratuity' };
+const nameOf = v => NAMES[v] || (String(v || '').charAt(0).toUpperCase() + String(v || '').slice(1));
+const none = (x, ok = 'None') => x ? String(x) : ok;
 
 export function details(appVersion) {
   const s = ctx.snap() || {}; const st = ctx.V.get('sync', 'state') || {}; const ua = navigator.userAgent;
-  const dev = /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iPhone/iPad' : /Windows/i.test(ua) ? 'Windows' : /Mac/i.test(ua) ? 'Mac' : 'Other';
-  const br = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Other';
+  const dev = /Android/i.test(ua) ? 'Android phone' : /iPhone|iPad/i.test(ua) ? 'iPhone / iPad' : /Windows/i.test(ua) ? 'Windows laptop' : /Mac/i.test(ua) ? 'Mac' : 'Other device';
+  const br = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'another browser';
+  const secs = st.recalcMs ? Math.max(1, Math.round(st.recalcMs / 1000)) : 0;
+  const miss = ctx.snap() ? fireMissing(s) : [];
+  const fire = !ctx.snap() ? 'Not synced yet' : s.firePlan && s.firePlan.needed > 0 ? 'Worked out' : miss.length ? 'Needs ' + miss.map(r => r.label).join(', ') : 'Works out to nothing';
+  const waiting = ctx.V.all('outbox').length, choice = ctx.V.all('conflict').length;
   return [
-    ['App version', appVersion],
-    ['Tracker version', s.schema ? 'v' + s.schema : 'not synced yet'],
-    ['Screens just used', trail.join(' › ') || state.view],
-    ['Device', dev + ' · ' + br + (matchMedia('(display-mode: standalone)').matches ? ' · installed' : ' · in the browser')],
-    ['Last sync', st.lastSync ? st.lastSync.slice(0, 16).replace('T', ' ') + ' UTC' : 'never'],
-    ['Last sync problem', st.lastError || 'none'],
-    ['Tracker update problem', st.upgradeError || 'none'],
-    ['Recalculation', st.recalcError ? 'failed: ' + st.recalcError : st.recalcMs ? 'ok, ' + Math.round(st.recalcMs / 100) / 10 + ' s' : 'not run yet'],
-    ['Waiting to sync', String(ctx.V.all('outbox').length)],
-    ['Needs your choice', String(ctx.V.all('conflict').length)],
-    ['Recent error messages', errors.join(' | ') || 'none'],
+    ['App version', String(appVersion).split(' ')[0]],
+    ['Tracker version', s.schema ? 'v' + s.schema : 'Not synced yet'],
+    ['Screens just used', (trail.length ? trail : [state.view]).map(nameOf).join(' › ')],
+    ['Device', dev + ', ' + br + (matchMedia('(display-mode: standalone)').matches ? ' (installed app)' : '')],
+    ['Last sync', st.lastSync ? F.dateTime(st.lastSync) : 'Never'],
+    ['Sync problems', none(st.lastError)],
+    ['Tracker update problems', none(st.upgradeError)],
+    ['Figures worked out', st.recalcError ? 'No: ' + st.recalcError : secs ? 'Yes, in ' + secs + ' second' + (secs === 1 ? '' : 's') : 'Not yet'],
+    ['FIRE plan', fire],
+    ['Changes waiting to sync', waiting ? String(waiting) : 'None'],
+    ['Changes needing your choice', choice ? String(choice) : 'None'],
+    ['Recent error messages', errors.join(' | ') || 'None'],
   ];
 }
 
@@ -52,5 +70,5 @@ export function viewReport(appVersion) {
   return { title: 'Report a problem', back: 'settings', body: [
     card(null, null, h('p', { class: 'hint', style: { marginTop: 0 } }, 'Tell what happened. The details below are added so the fault can be found. They hold no amounts, no names of holdings, no notes and no tracker link.'), ta,
       h('div', { class: 'btns', style: { marginTop: '10px' } }, sendBtn, h('button', { class: 'btn', id: 'repcopy', onclick: copy }, 'Copy')), sent),
-    card('What is shared', null, h('div', { class: 'kv', id: 'repdetails' }, rows.flatMap(([k, v]) => [h('span', {}, k), h('span', {}, v)])))] };
+    card('What is shared', null, h('dl', { class: 'replist', id: 'repdetails' }, rows.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])))] };
 }

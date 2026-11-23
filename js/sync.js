@@ -7,6 +7,8 @@ import { extractSnapshot } from './extract.js';
 import { isTidy, readTidy, toTidy, TIDY } from './kite.js';
 import { schemaVersion } from './migrate.js';
 import { recalcWorkbook } from './recalc.js';
+import { SLOT2, personalise } from './people.js';
+import { readPeople } from './extract.js';
 
 const DAILY = 'tblDaily', LOG = 'tblSyncLog', META = 'tblAppMeta';
 export class PreconditionFailed extends Error {}
@@ -160,13 +162,27 @@ export async function syncOnce({ transport, ops, who, device, maxTries = 3, last
       try { const r = await upgrade(bytes); wb = await Workbook.open(r.bytes); upgraded = Object.assign({}, r, { oldBytes: bytes, bytes: undefined }); }
       catch (e) { upgradeError = e.message || String(e); wb = await Workbook.open(bytes); } // the update waits; your entries still sync
     }
-    const res = ops.length ? applyOutbox(wb, ops, who, device) : { applied: [], conflicts: [], logCount: 0 };
+    // 0.16.0: a second money holder added to a family of one: the tracker's "Person 2" columns, lists and handover
+    // sheet take the new name (all text, nothing else changes; checked below). Then the rest of the outbox as usual.
+    const ren = ops.filter(o => o.kind === 'renameSlot2'), rest = ops.filter(o => o.kind !== 'renameSlot2'); let renamed = [];
+    if (ren.length) {
+      const pp = readPeople(wb); const op = ren[ren.length - 1];
+      if (pp.v32 && pp.l2 === SLOT2 && op.to) {
+        const shape = w => Object.keys(w.sheetPath).length + '|' + Object.keys(w.tables).sort().map(t => { const x = w.table(t); return t + ':' + (x.r2 - x.r1); }).join(',');
+        const before = shape(wb); const nb = await personalise(await wb.save(), [[SLOT2, op.to]], { clean: false }); const w2 = await Workbook.open(nb);
+        if (shape(w2) !== before) throw new Error('Adding ' + op.to + ' did not keep the tracker\'s layout. Nothing was changed.');
+        wb = w2;
+      }
+      renamed = ren.map(o => o.opId);
+    }
+    const res = rest.length ? applyOutbox(wb, rest, who, device) : { applied: [], conflicts: [], logCount: 0 };
+    res.applied = renamed.concat(res.applied);
     res.upgraded = upgraded; res.upgradeError = upgradeError;
     // 0.15.1: the app works out every formula itself, so the figures (and the saved file) are current without Excel
     res.recalc = null; res.recalcError = null;
     if (recalc) { try { res.recalc = await recalc(wb); } catch (e) { res.recalcError = e.message || String(e); } }
     let newEtag = etag; let finalBytes = bytes;
-    if (res.logCount || upgraded || (res.recalc && res.recalc.changed)) { // nothing changed (or every change was already in the file): nothing is uploaded
+    if (res.logCount || upgraded || renamed.length || (res.recalc && res.recalc.changed)) { // nothing changed (or every change was already in the file): nothing is uploaded
       const out = await wb.save(); finalBytes = out;
       try { newEtag = (await transport.upload(out, etag)).etag; }
       catch (e) { if (e instanceof PreconditionFailed && attempt < maxTries) continue; throw e; } // someone saved meanwhile: start again on the new file

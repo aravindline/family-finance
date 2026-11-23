@@ -3,6 +3,7 @@
 // Upstox) holdings paste already holds. Funds in folios, and every demat holding (bonds, NCDs, G-secs, T-bills, SDLs,
 // SGBs, ETFs, REITs, InvITs, preference shares, rights, funds in demat, and anything not recognised) are listed by where
 // they go in the app; shares in an account that is in the holdings paste are only compared with it, never added twice.
+import * as P from './people.js';
 import { ctx } from './ctx.js';
 import * as F from './fmt.js';
 import { h, toast, seg, card } from './ui.js';
@@ -28,7 +29,7 @@ async function readPdf(file, password) {
 
 export function viewCas() {
   const s = ctx.snap() || {};
-  if (!C.owner) C.owner = ctx.who() || 'Aravind';
+  if (!C.owner) C.owner = P.HOLDERS.includes(ctx.who()) ? ctx.who() : P.p1();
   const file = h('input', { type: 'file', id: 'casfile', accept: 'application/pdf,.pdf', class: 'field', style: { padding: '8px' }, 'aria-label': 'CAS PDF', onchange: e => { C.file = (e.target.files && e.target.files[0]) || C.file; C.error = ''; ctx.render(); } });
   const pw = h('input', { type: 'password', id: 'caspw', class: 'field', autocomplete: 'off', 'aria-label': 'PDF password', placeholder: 'PDF password (used once, never saved)' });
   const read = async () => {
@@ -42,7 +43,7 @@ export function viewCas() {
   const body = [h('h2', { class: 'formhead' }, 'CDSL CAS statement'),
     h('p', { class: 'hint', style: { margin: '0 4px 12px' } }, 'Use the PDF CDSL emails you each month. It is read on this phone. Every investment in it is listed and saved where it belongs; what your Kite or Upstox holdings already have is only compared, never added twice.'),
     card(null, null, h('div', { class: 'fstack' },
-      h('div', { class: 'fblock' }, h('span', { class: 'flabel' }, 'Whose statement is this?'), seg(['Aravind', 'Madhu'], C.owner, v => { C.owner = v; ctx.render(); }, 'Whose CAS'), h('span', { class: 'fsub' }, "Parents' accounts count as Aravind's.")),
+      h('div', { class: 'fblock' }, h('span', { class: 'flabel' }, 'Whose statement is this?'), P.HOLDERS.length < 2 ? h('span', {}, P.p1()) : seg(P.HOLDERS, C.owner, v => { C.owner = v; ctx.render(); }, 'Whose CAS'), h('span', { class: 'fsub' }, 'An account you hold for someone else (for example a parent) counts as yours.')),
       h('div', { class: 'fblock' }, h('span', { class: 'flabel' }, 'CAS PDF'), file, C.file ? h('span', { class: 'fsub', id: 'casfilename' }, 'Chosen: ' + C.file.name) : null),
       h('div', { class: 'fblock' }, h('span', { class: 'flabel' }, 'Password'), pw),
       C.error ? h('p', { id: 'caserror', role: 'alert', style: { color: 'var(--critical)', fontWeight: 600 } }, C.error) : null,

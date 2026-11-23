@@ -3,6 +3,7 @@
 // over the same file in OneDrive before writing anything new. OneDrive keeps the previous version in its Version
 // history, and the phone that did the update keeps a copy so it can be undone from here. An app older than the tracker
 // never writes to it (sync.js maxSchema).
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, toast, card, empty, sheet } from './ui.js';
@@ -12,7 +13,7 @@ import { CONFIG } from './config.js';
 import { Workbook } from './xlsx.js';
 import { upgradeBytes } from './upgrade.js';
 
-export const TEMPLATE = { version: 31, path: 'tracker/template-v31.xlsx' };
+export const TEMPLATE = { version: 32, path: 'tracker/template-v32.xlsx' };
 const UP = { busy: false, step: '' };
 const T = f => new GraphFile({ base: CONFIG.graphBase, getToken: () => Auth.getToken(true), driveId: f.driveId, itemId: f.itemId });
 const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 32768) s += String.fromCharCode.apply(null, u8.subarray(i, i + 32768)); return btoa(s); };
@@ -62,7 +63,7 @@ export function viewMove() {
     const after = s.netWorth ? s.netWorth.family : null; const hasNw = chk.nw !== null && chk.nw !== undefined;
     body.push(card('Check after the update', null, h('div', { class: 'kv', id: 'mvcheck' }, h('span', {}, 'Updated'), h('span', {}, chk.from + ' to ' + chk.to + ' · ' + F.date(chk.at.slice(0, 10))), h('span', {}, 'Entries checked'), h('span', { class: 'num' }, String(chk.copied || 0)),
       hasNw ? [h('span', {}, 'Net worth before'), h('span', { class: 'num' }, F.inr(chk.nw)), h('span', {}, 'Net worth now'), h('span', { class: 'num' }, after === null || after === undefined ? '–' : F.inr(after))] : null),
-      !hasNw ? h('p', { class: 'hint', style: { marginTop: '8px' } }, 'Every entry was read back from the updated file and matches.') : h('p', { class: 'hint', style: { marginTop: '8px' } }, s.provisional ? 'Open the tracker once in Excel for the web, then sync to compare.' : after !== null && Math.abs(after - chk.nw) < 1 ? 'They match.' : 'They differ by ' + F.inr(Math.abs((after || 0) - chk.nw)) + '. New prices or entries since the update can explain it.')));
+      !hasNw ? h('p', { class: 'hint', style: { marginTop: '8px' } }, 'Every entry was read back from the updated file and matches.') : h('p', { class: 'hint', style: { marginTop: '8px' } }, s.provisional ? 'The figures are compared after the next sync.' : after !== null && Math.abs(after - chk.nw) < 1 ? 'They match.' : 'They differ by ' + F.inr(Math.abs((after || 0) - chk.nw)) + '. New prices or entries since the update can explain it.')));
   }
   if (bk && !UP.busy) body.push(card('Undo', null, h('p', { class: 'hint' }, 'Puts back the v' + bk.version + ' file as it was just before the update on ' + F.date(bk.at.slice(0, 10)) + '. Entries synced since then are not in it.'),
     h('div', { class: 'btns' }, h('button', { class: 'btn', id: 'upundo', onclick: () => {

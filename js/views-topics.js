@@ -1,5 +1,6 @@
 // More, organised by money topic (Aravind, 9 Nov 2026). Each tile opens one page with that topic's screens and
 // everything you type for it, so there is no separate "Update tracker" list any more.
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as F from './fmt.js';
 import { h, icon, tag, card } from './ui.js';
@@ -33,7 +34,7 @@ export const TOPICS = [
     ['form', 'otherhold', 'doc', 'Bonds, NCDs and G-secs', 'Bonds (e.g. Wint Wealth), NCDs, G-secs, T-bills and SDLs', 'cash'],
     ['view', 'deposits', 'calendar', 'FD / RD', 'Each FD and RD once, with its maturity; matured and closed ones'],
     ['view', 'epf', 'bank', 'EPF', 'Opening balance, monthly amount for the year, interest when credited'],
-    ['view', 'gratuity', 'g_coin', 'Gratuity', 'Company, joining date and basic + DA, for Aravind and Madhu'],
+    ['view', 'gratuity', 'g_coin', 'Gratuity', 'Company, joining date and basic + DA, for each earner'],
     ['view', 'lent', 'hand', 'Money lent', 'Who owes you, and when to follow up']] },
   { id: 'gold', icon: 'g_coin', title: 'Gold & other assets', sub: 'Gold, silver, SGBs, schemes, lending, deposits, land, vehicles', items: [
     ['form', 'gold'],
@@ -50,7 +51,10 @@ export const TOPICS = [
     ['head', 'Update'], ['form', 'insurance'], ['form', 'documents'], ['form', 'nominees'], ['form', 'wills']] },
   { id: 'app', icon: 'gear', title: 'App', sub: 'Sign in, settings, suggestions, lock', items: [
     ['view', 'signin', 'sync', 'Sign in & tracker', 'Microsoft account, the tracker file, last sync'],
+    ['view', 'family', 'c_people', 'Family', 'The names in your family; add more later (up to 5)'],
+    ['view', 'sections', 'eye', 'Sections', 'Show or hide parts of the app for the whole family'],
     ['view', 'settings', 'gear', 'Settings', 'Lock, fingerprint, theme, backup, new tracker version'],
+    ['view', 'help', 'info', 'Help', 'Guide, tour, send feedback, report a problem'],
     ['view', 'suggest', 'msg', 'Suggestion box', 'Ideas and problems with the app'],
     ['act', 'lock', 'lock', 'Lock now', 'Locks the app on this device'],
     ['head', 'Advanced lists'], ['view', 'grouping', 'pie', 'How holdings are grouped', 'Holding types and classes, and the grouping rules']] },
@@ -82,16 +86,19 @@ function badge(id, s) {
 
 // a topic with one screen opens that screen straight away (no "Loans › Loans" double tap); Back returns to More
 function openTopic(t) {
-  state.topic = t.id; state.fromTopic = null; const only = t.items.filter(i => i[0] !== 'head');
+  state.topic = t.id; state.fromTopic = null; const only = t.items.filter(i => i[0] !== 'head' && itemOn(i));
   if (only.length === 1 && only[0][0] === 'form') { state.formId = only[0][1]; state.formBack = 'more'; return ctx.go('form'); }
   if (only.length === 1 && only[0][0] === 'view') { state.formBack = 'more'; return ctx.go(only[0][1]); }
   ctx.go('tracker');
 }
+// S4 (0.16.0): what the family switched off is not offered anywhere
+const itemOn = it => it[0] === 'view' ? P.viewOn(it[1]) : it[0] === 'form' ? P.formOn(it[1]) : true;
+const topicOn = t => t.items.some(it => it[0] !== 'head' && itemOn(it));
 export function viewMoreTopics() {
   const s = ctx.snap();
   const month = h('section', { class: 'card', id: 'monthstrip' }, h('div', { class: 'li tap', onclick: () => ctx.go('monthly') }, h('span', { class: 'lead' }, icon('wizard')),
     h('div', { class: 'body' }, h('div', { class: 'ttl' }, 'Month-end update'), h('div', { class: 'sub' }, 'Pick the month, then 8 short steps; saved and invested fill in by themselves')), icon('right', 16)));
-  const tiles = h('div', { class: 'tiles', id: 'topics' }, TOPICS.map(t => h('button', { type: 'button', class: 'tile', 'data-topic': t.id, onclick: () => openTopic(t) },
+  const tiles = h('div', { class: 'tiles', id: 'topics' }, TOPICS.filter(topicOn).map(t => h('button', { type: 'button', class: 'tile', 'data-topic': t.id, onclick: () => openTopic(t) },
     h('div', { class: 't-l' }, icon(t.icon, 16), badge(t.id, s)), h('div', { class: 't-v tile-name', style: { fontSize: '1rem' } }, t.title), h('div', { class: 't-s', style: { whiteSpace: 'normal' } }, t.sub))));
   return { title: 'More', body: [month, h('div', { class: 'spacer' }), tiles] };
 }
@@ -102,6 +109,7 @@ export function viewTopic() {
   const groups = [[null, []]];
   for (const it of t.items) {
     if (it[0] === 'head') { groups.push([it[1], []]); continue; }
+    if (!itemOn(it)) continue;
     const list = groups[groups.length - 1][1];
     if (it[0] === 'view') list.push(row(it[1], it[2], it[3], it[4], () => { state.fromTopic = it[1]; ctx.go(it[1]); }));
     else if (it[0] === 'topic') list.push(row(it[1] + '-link', it[2], it[3], it[4], () => { state.topic = it[1]; ctx.render(); window.scrollTo(0, 0); }));

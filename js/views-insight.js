@@ -1,4 +1,5 @@
 // Reports: month-on-month spending by month, person and category (from daily entries).
+import * as P from './people.js';
 import { ctx, state } from './ctx.js';
 import * as C2 from './views-c2.js';
 import * as F from './fmt.js';
@@ -6,7 +7,7 @@ import { h, s, icon, seg, tag, card, empty, columnChart, SERIES } from './ui.js'
 
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7); };
-const PEOPLE = ['Aravind', 'Madhu'];
+const PEOPLE = P.MEMBERS; // spending by whoever it is for (v32: up to 5 names from the tracker)
 
 function spark(vals) {
   const W = 72, H = 22, hi = Math.max(1, ...vals); const X = i => vals.length === 1 ? W / 2 : i * (W - 4) / (vals.length - 1) + 2;
@@ -22,7 +23,7 @@ export function viewReports() {
   const first = all.map(e => e.date.slice(0, 7)).sort()[0];
   const shown = first ? months.filter(m => m >= first) : [];
   const head = h('div', { class: 'toolbar' }, seg([['6', '6 months'], ['12', '12 months']].map(x => x[1]), span + ' months', v => { state.repSpan = parseInt(v, 10); ctx.render(); }, 'Period'),
-    seg([['All', 'Family'], ...PEOPLE], who, v => { state.repWho = v; ctx.render(); }, 'Whose spending'));
+    PEOPLE.length < 2 ? null : seg([['All', 'Family'], ...PEOPLE], who, v => { state.repWho = v; ctx.render(); }, 'Whose spending'));
   if (!shown.length) return { title: 'Reports', back: 'spend', body: [head, card(null, null, empty('Reports appear once daily expenses are logged.'))] };
 
   const by = {}; for (const m of shown) by[m] = { total: 0, p: {}, c: {} };
@@ -42,7 +43,7 @@ export function viewReports() {
     isNowPartial ? h('p', { class: 'hint', style: { marginTop: '6px' } }, F.monthLabel(end, true) + ' is still running.') : null);
 
   const people = who === 'All' ? card('Whose spending', null,
-    columnChart(shown.map(m => ({ x: lbl(m), parts: PEOPLE.map(p => by[m].p[p] || 0) })), { series: PEOPLE, colors: [SERIES[0], SERIES[1]], label: 'Spending by person and month' }),
+    columnChart(shown.map(m => ({ x: lbl(m), parts: PEOPLE.map(p => by[m].p[p] || 0) })), { series: PEOPLE, colors: PEOPLE.map((x, i) => SERIES[i % SERIES.length]), label: 'Spending by person and month' }),
     h('div', { class: 'kv', style: { marginTop: '10px' } }, ...PEOPLE.flatMap(p => { const t = shown.reduce((a, m) => a + (by[m].p[p] || 0), 0); const g = shown.reduce((a, m) => a + by[m].total, 0); return [h('span', {}, p), h('span', {}, F.inr(t) + ' · ' + F.pct(g ? t / g : 0, 0))]; }))) : null;
 
   const cats = [...new Set(shown.flatMap(m => Object.keys(by[m].c)))];
